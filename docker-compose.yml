@@ -1,0 +1,38 @@
+# Ambiente local de teste do plugin: servidor Paper + cliente web no navegador.
+# Suba com ./dev/up.sh (compila o plugin, prepara a config e roda o compose).
+services:
+  minecraft:
+    image: itzg/minecraft-server
+    container_name: rivoo-mc
+    ports:
+      - "25565:25565"
+    environment:
+      EULA: "TRUE"
+      TYPE: PAPER
+      VERSION: "1.21.4"
+      ONLINE_MODE: "false"      # entra sem conta Microsoft — só para teste local
+      DIFFICULTY: peaceful
+      MOTD: "Rivoo - teste do plugin Pix"
+      OPS: ${MC_OPS:-Steve}
+      MEMORY: 2G
+      UID: ${MC_UID:-1000}
+      GID: ${MC_GID:-1000}
+    volumes:
+      - ./server:/data
+    extra_hosts:
+      # permite apontar o plugin para uma API da Rivoo rodando na máquina (rivoo.api-url)
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "mc-health"]
+      interval: 10s
+      retries: 30
+
+  web:
+    build: ./web-client
+    image: rivoo-mc-web
+    container_name: rivoo-mc-web
+    ports:
+      - "8080:8080"
+    depends_on:
+      minecraft:
+        condition: service_healthy

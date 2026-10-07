@@ -1,0 +1,8 @@
+# Conecte este servidor pelo painel da Rivoo: ao iniciar, o console mostra um código de
+# 8 letras; digite-o em Integrações → Minecraft → Conectar servidor.
+# (Alternativa: crie o servidor com chave no painel e rode no console: rivoo secret <chave>)
+# Não é preciso editar este arquivo.
+
+rivoo:
+  # Não mexa, exceto em desenvolvimento local (ex.: http://localhost:3000).
+  api-url: "https://api.rivoopay.com"

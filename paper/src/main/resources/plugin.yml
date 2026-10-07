@@ -1,0 +1,16 @@
+name: Rivoo
+version: '${version}'
+main: dev.rivoo.minecraft.paper.RivooPlugin
+api-version: '1.21'
+description: Venda de itens via Pix com a Rivoo
+commands:
+  comprar:
+    description: Compra um produto via Pix
+    usage: /comprar <sku>
+  rivoo:
+    description: Comandos de administração da Rivoo
+    usage: /rivoo <status|simular [chargeId]|secret <chave>|connect>
+    permission: rivoo.admin
+permissions:
+  rivoo.admin:
+    default: op
