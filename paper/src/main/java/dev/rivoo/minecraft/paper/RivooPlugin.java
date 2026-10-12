@@ -27,6 +27,9 @@ import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.time.Clock;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -40,12 +43,6 @@ public final class RivooPlugin extends JavaPlugin {
 
     @Override
     public void onEnable() {
-        LegacyMigration migration = new LegacyMigration(getDataFolder().toPath().getParent(), getLogger());
-        try {
-            if (migration.copyConfig(getDataFolder().toPath())) reloadConfig();
-        } catch (java.io.IOException e) {
-            getLogger().warning("Migração: falha ao copiar config.yml: " + e.getMessage());
-        }
         saveDefaultConfig();
 
         KeyFile keyFile = new KeyFile(getDataFolder().toPath().resolve("server.key"));
@@ -56,8 +53,15 @@ public final class RivooPlugin extends JavaPlugin {
             getLogger().severe("Falha lendo plugins/Rivoo/server.key: " + e.getMessage());
             serverKey = Optional.empty();
         }
-        String legacyKey = getConfig().getString("rivoo.api-key", "");
-        boolean legacy = serverKey.isEmpty() && !legacyKey.isBlank() && !legacyKey.startsWith("COLOQUE");
+        if (serverKey.isPresent() && !serverKey.get().startsWith(RivooClient.KEY_PREFIX)) {
+            // Chave cpk_ das versões 0.x: a Rivoo não a aceita mais. Pareamento novo; o arquivo é sobrescrito.
+            getLogger().warning("server.key é da versão antiga do plugin (antes da 1.0.0) e não vale na Rivoo atual."
+                    + " Pareie de novo com o código abaixo.");
+            serverKey = Optional.empty();
+        }
+        if (!getConfig().getString("rivoo.api-key", "").isBlank()) {
+            getLogger().warning("rivoo.api-key no config.yml não é mais usada (chave de empresa). Pareie o servidor pelo código.");
+        }
 
         PurchaseStore store = new PurchaseStore(getDataFolder().toPath().resolve("purchases.json"), getLogger(),
                 Clock.systemUTC());
@@ -68,32 +72,22 @@ public final class RivooPlugin extends JavaPlugin {
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
-        LegacyMigration.Result imported = migration.importPurchases(store);
-        if (imported.complete()) {
-            try {
-                migration.archive();
-            } catch (java.io.IOException e) {
-                getLogger().warning("Migração: falha ao arquivar plugins/RivooPoc: " + e.getMessage());
-            }
-        } else {
-            getLogger().severe("Migração incompleta: " + imported.skipped() + " compra(s) não importada(s)"
-                    + (imported.persisted() ? "" : " / falha ao gravar purchases.json")
-                    + ". plugins/RivooPoc mantido; corrija e reinicie.");
-        }
-        Catalog catalog = PaperConfig.catalog(getConfig(), !legacy);
+        Catalog catalog = new Catalog(List.of());
         PixHud hud = new PixHud(this);
         QrMaps maps = new QrMaps(new NamespacedKey(this, "charge-id"), store,
                 p -> catalog.find(p.sku).map(Product::name).orElse(p.sku));
         PaperPurchaseView view = new PaperPurchaseView(getServer(), hud, maps, store);
 
+        String version = getPluginMeta().getVersion();
+        PairingFlow.ServerFacts facts = new PairingFlow.ServerFacts(version, Bukkit.getMinecraftVersion(),
+                PlainTextComponentSerializer.plainText().serialize(getServer().motd()), getServer().getPort());
         SecretConnector connector = new SecretConnector(this::clientFor, keyFile,
                 (api, info) -> Bukkit.getScheduler().runTask(this, () -> {
                     if (pairing != null) pairing.stop();
-                    holder.swap(engineFor(api, PaperConfig.serverKeyDelivery(getConfig()), store, catalog, view), info);
+                    BootCheck.warnIfOutdated(info, version, getLogger());
+                    holder.swap(engineFor(api, facts, store, catalog, view), info);
                 }));
-        pairing = new PairingFlow(new RivooClient(apiUrl(), null, getPluginMeta().getVersion()), connector,
-                new PairingFlow.ServerFacts(getPluginMeta().getVersion(), Bukkit.getMinecraftVersion(),
-                        PlainTextComponentSerializer.plainText().serialize(getServer().motd()), getServer().getPort()),
+        pairing = new PairingFlow(new RivooClient(apiUrl(), null, version), connector, facts,
                 Clock.systemUTC(), getLogger(), this::announce, PairingFlow::randomSecret);
         Bukkit.getScheduler().runTaskTimerAsynchronously(this, pairing::tick, 20L, 20L);
 
@@ -115,23 +109,15 @@ public final class RivooPlugin extends JavaPlugin {
 
         if (serverKey.isPresent()) {
             RivooApi api = clientFor(serverKey.get());
-            DeliveryEngine boot = engineFor(api, PaperConfig.serverKeyDelivery(getConfig()), store, catalog, view);
+            DeliveryEngine boot = engineFor(api, facts, store, catalog, view);
             holder.swap(boot, null);
-            if (serverKey.get().startsWith("cpk_sandbox_")) {
-                getLogger().warning("Chave SANDBOX: Pix simulado, use /rivoo simular para pagar.");
-            }
             // Só informativo: o motor já roda. Revogada → o aviso de chave revogada, uma vez.
             Bukkit.getScheduler().runTaskAsynchronously(this, () -> BootCheck.run(api, boot, holder, getLogger(),
-                    task -> Bukkit.getScheduler().runTask(this, task)));
-        } else if (legacy) {
-            if (legacyKey.startsWith("cpk_sandbox_")) {
-                getLogger().warning("Chave SANDBOX: cobranças em devMode, use /rivoo simular para pagar.");
-            }
-            holder.swap(engineFor(clientFor(legacyKey), PaperConfig.delivery(getConfig()), store, catalog, view), null);
+                    task -> Bukkit.getScheduler().runTask(this, task), version));
         } else {
             pairing.start();
         }
-        getLogger().info("Rivoo ativo. Pendentes: " + store.inState(State.PENDING).size());
+        getLogger().info("Rivoo ativo. Pix abertos: " + store.inState(State.PENDING).size());
     }
 
     private String apiUrl() {
@@ -149,8 +135,14 @@ public final class RivooPlugin extends JavaPlugin {
                 .filter(Player::isOp).forEach(p -> p.sendMessage(message)));
     }
 
-    private DeliveryEngine engineFor(RivooApi api, DeliveryConfig config, PurchaseStore store, Catalog catalog,
+    private DeliveryEngine engineFor(RivooApi api, PairingFlow.ServerFacts facts, PurchaseStore store, Catalog catalog,
                                      PaperPurchaseView view) {
+        // Mesmos campos que o pareamento manda: o painel mostra os dados do servidor.
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("gameVersion", facts.mcVersion());
+        details.put("motd", RivooClient.cleanMotd(facts.motd()));
+        if (facts.port() > 0) details.put("port", facts.port());
+        DeliveryConfig config = PaperConfig.delivery(getConfig(), facts.pluginVersion(), details);
         DeliveryEngine engine = new DeliveryEngine(api, store, catalog, new PaperScheduler(this),
                 new PaperPlayers(getServer()), cmd -> Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd), view,
                 config, getLogger(), Clock.systemUTC());

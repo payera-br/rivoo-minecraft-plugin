@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-/** Catálogo de produtos. No modo game é substituído inteiro a cada recarga da API (leitura sem lock). */
+/** Catálogo de produtos da Rivoo. Substituído inteiro a cada recarga da API (leitura sem lock). */
 public final class Catalog {
     private volatile Map<String, Product> bySku;
 

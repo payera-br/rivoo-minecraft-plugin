@@ -19,6 +19,11 @@ public final class PaperPlayers implements Players {
         return Optional.ofNullable(server.getOfflinePlayer(player).getName());
     }
 
+    @Override public Optional<UUID> onlineByName(String name) {
+        var online = server.getPlayerExact(name);
+        return online == null ? Optional.empty() : Optional.of(online.getUniqueId());
+    }
+
     /** Inventário principal (36): sem armadura nem mão secundária. */
     @Override public int freeSlots(UUID player) {
         var online = server.getPlayer(player);

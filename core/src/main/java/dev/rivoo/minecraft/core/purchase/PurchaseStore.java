@@ -4,7 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import dev.rivoo.minecraft.core.api.Charge;
+import dev.rivoo.minecraft.core.api.AgentOrder;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -18,8 +18,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 
 /**
- * Compras conhecidas pelo plugin (purchases.json). A API não busca cobranças por externalId, então é
- * aqui que o plugin lembra o que está pendente depois de um restart. Gravação atômica a cada mudança.
+ * Compras conhecidas pelo plugin (purchases.json): os Pix abertos e o mapa de cada um. A API não lista
+ * os pedidos de um jogador, então é aqui que o plugin lembra o que está pendente depois de um restart.
+ * Gravação atômica a cada mudança.
  */
 public final class PurchaseStore {
     private static final int VERSION = 1;
@@ -55,7 +56,7 @@ public final class PurchaseStore {
                         + moveError.getMessage() + "). Corrija ou mova " + file + " e reinicie.", e);
             }
             log.severe("Arquivo de compras ilegível (" + e.getMessage() + "). Guardado em " + corrupt.getFileName()
-                    + "; iniciando vazio. Compras pagas voltam pela fila de entregas.");
+                    + "; iniciando vazio. As entregas vêm da fila de comandos da Rivoo.");
         }
     }
 
@@ -74,9 +75,9 @@ public final class PurchaseStore {
         return save();
     }
 
-    public Purchase newPurchase(Charge c, UUID playerId, String playerName, String sku, int amount) {
-        return new Purchase(c.id(), playerId, playerName, sku, amount, c.brCode(), c.url(), clock.instant(),
-                c.expiresAt(), State.PENDING, null);
+    public Purchase newPurchase(AgentOrder o, UUID playerId, String playerName, String sku) {
+        return new Purchase(o.id(), playerId, playerName, sku, o.amount(), o.brCode(), o.checkoutUrl(),
+                clock.instant(), o.expiresAt(), State.PENDING, null);
     }
 
     /** Transição atômica. false se o estado atual não era {@code from}: é o que impede entrega dupla. */
@@ -91,7 +92,7 @@ public final class PurchaseStore {
         return true;
     }
 
-    /** Entregue a partir de qualquer estado (na fila, o pagamento pode chegar depois do vencimento local). */
+    /** Pago a partir de qualquer estado (o pagamento pode ser confirmado depois do vencimento local). */
     public synchronized boolean markDelivered(Purchase p) {
         if (p.state == State.DELIVERED) return false;
         State oldState = p.state;
@@ -101,18 +102,6 @@ public final class PurchaseStore {
             return false;
         }
         return true;
-    }
-
-    /** Reconstrói uma compra paga a partir do externalId quando o estado local se perdeu. */
-    public synchronized Purchase recover(String chargeId, ExternalId ext, int amount, String playerName) {
-        Purchase existing = purchases.get(chargeId);
-        if (existing != null) return existing;
-        Instant now = clock.instant();
-        Purchase p = new Purchase(chargeId, ext.player(), playerName, ext.sku(), amount, "", "", now, now,
-                State.PAID, null);
-        purchases.put(chargeId, p);
-        save();
-        return p;
     }
 
     public synchronized void setMapId(Purchase p, int mapId) {

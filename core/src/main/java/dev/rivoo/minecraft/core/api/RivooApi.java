@@ -4,46 +4,39 @@ import dev.rivoo.minecraft.core.catalog.Product;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
-/** API da Rivoo usada pelo plugin. Chamadas bloqueantes: nunca na thread do jogo. */
+/**
+ * Protocolo do agente ({@code /v1/agent/*}) com a chave da conexão (rck_). Chamadas bloqueantes:
+ * nunca na thread do jogo. 401 (ApiException) = chave revogada ou conexão removida.
+ */
 public interface RivooApi {
-    /** @param fulfillmentChannel canal da fila de entregas, ou null no modo status (legado). */
-    Charge createPixCharge(int amountCents, String externalId, int expiresIn, String idempotencyKey,
-                           String fulfillmentChannel) throws IOException, InterruptedException;
+    /** {@code GET /v1/agent/connection}: qual servidor/projeto a chave representa. */
+    ServerInfo connection() throws IOException, InterruptedException;
 
-    ChargeStatus getStatus(String chargeId) throws IOException, InterruptedException;
+    /** {@code POST /v1/agent/heartbeat}: versão do plugin e dados do servidor para o painel. */
+    void heartbeat(String agentVersion, Map<String, Object> details) throws IOException, InterruptedException;
 
-    FulfillmentPage listFulfillments(String channel, int limit) throws IOException, InterruptedException;
-
-    /** Devolve os ids confirmados agora ou antes (acked + alreadyAcked). */
-    List<String> ack(List<String> chargeIds) throws IOException, InterruptedException;
-
-    /** Só para cobranças devMode (chave cpk_sandbox_). */
-    void simulatePayment(String chargeId) throws IOException, InterruptedException;
+    /** {@code GET /v1/agent/catalog}: produtos com sku, preço já com descontos do catálogo. */
+    List<Product> catalog() throws IOException, InterruptedException;
 
     /**
-     * Modo game: pacotes do servidor. Produtos sem comandos locais; a API manda os comandos prontos.
-     * {@code channel} pode ser null: com chave de servidor a API resolve o servidor pela chave.
+     * {@code POST /v1/agent/orders}: pedido de 1 unidade do sku para o jogador, pago por Pix. O plugin
+     * não manda valor: a Rivoo aplica preço, regras e descontos e devolve o total.
      */
-    List<Product> gameCatalog(String channel) throws IOException, InterruptedException;
+    AgentOrder createOrder(String sku, UUID playerId, String playerName, String idempotencyKey)
+            throws IOException, InterruptedException;
+
+    /** {@code GET /v1/agent/orders/:id}: OPEN, PAID, PARTIALLY_REFUNDED, REFUNDED, EXPIRED ou CANCELED. */
+    String orderStatus(String orderId) throws IOException, InterruptedException;
 
     /**
-     * Modo game: cria a cobrança do pacote ({@code POST /game/purchases}). O plugin não manda valor:
-     * a Rivoo cobra o preço do pacote e o devolve em {@link GamePurchase#price()}.
+     * {@code GET /v1/agent/commands}: comandos vencidos da conexão, na ordem de execução. Long-poll: a
+     * API responde assim que houver comandos, ou vazio depois de {@code waitSeconds}.
      */
-    GamePurchase createGamePurchase(String channel, String sku, UUID playerId, String playerName,
-                                    String idempotencyKey) throws IOException, InterruptedException;
+    CommandPage listCommands(int waitSeconds, int limit) throws IOException, InterruptedException;
 
-    /** Modo game: comandos pendentes do servidor, na ordem de execução. {@code channel} null = chave de servidor. */
-    CommandPage listCommands(String channel, int limit) throws IOException, InterruptedException;
-
-    /** Modo game: devolve os runIds confirmados agora ou antes (done + alreadyDone). */
+    /** {@code POST /v1/agent/commands/ack}: devolve os ids que saíram da fila (acked + ignored). */
     List<String> ackCommands(List<String> runIds) throws IOException, InterruptedException;
-
-    /** Chave de servidor: qual servidor/projeto ela representa. 401/403/404 = chave inválida, revogada ou de empresa. */
-    ServerInfo gameServer() throws IOException, InterruptedException;
-
-    /** Chave de servidor sandbox: simula o pagamento de uma compra deste servidor. */
-    void simulateGamePurchase(String chargeId) throws IOException, InterruptedException;
 }

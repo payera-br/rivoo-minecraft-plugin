@@ -7,6 +7,7 @@ import dev.rivoo.minecraft.core.api.RivooApi;
 import dev.rivoo.minecraft.core.platform.Scheduler;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -15,14 +16,16 @@ import java.util.function.Function;
 import java.util.logging.Logger;
 
 /**
- * Modo game (POC): consome a fila de comandos (GET /game/commands + POST /game/commands/ack).
- * Consulta async; execução na thread do jogo; ack async. O flag busy é sempre liberado.
+ * Consome a fila de comandos da conexão (GET /v1/agent/commands em long-poll + POST /v1/agent/commands/ack).
+ * Consulta async; execução na thread do jogo; ack async. O flag busy é sempre liberado. Atraso e
+ * repetição são da Rivoo: um comando só aparece na fila quando vence, e a próxima repetição é agendada
+ * a partir do ack.
  */
 public final class CommandPoller implements Runnable {
     static final int PAGE = 100;
 
     private final RivooApi api;
-    private final String channel;
+    private final int waitSeconds;
     private final Scheduler scheduler;
     private final Function<List<CommandRun>, List<String>> runSync;
     private final Consumer<List<String>> onAcked;
@@ -33,14 +36,17 @@ public final class CommandPoller implements Runnable {
     private final AtomicBoolean busy = new AtomicBoolean(false);
     private volatile Instant backoffUntil = Instant.EPOCH;
     private volatile long backoffSeconds = 5;
+    /** Intervalo mínimo entre avisos de fila parada, para não poluir o log a cada ciclo. */
+    static final Duration STUCK_WARNING_EVERY = Duration.ofMinutes(5);
+    private volatile Instant lastStuckWarning;
 
-    public CommandPoller(RivooApi api, String channel, Scheduler scheduler,
+    public CommandPoller(RivooApi api, int waitSeconds, Scheduler scheduler,
                          Function<List<CommandRun>, List<String>> runSync, Consumer<List<String>> onAcked,
                          Logger log, Clock clock, Runnable onUnauthorized) {
         this.onAcked = onAcked;
         this.onUnauthorized = onUnauthorized;
         this.api = api;
-        this.channel = channel;
+        this.waitSeconds = waitSeconds;
         this.scheduler = scheduler;
         this.runSync = runSync;
         this.log = log;
@@ -51,20 +57,25 @@ public final class CommandPoller implements Runnable {
         return busy.get();
     }
 
+    /** Motor parado ou trocado: uma consulta ainda aberta (long-poll) não executa nada ao voltar. */
+    public void stop() {
+        stopped = true;
+    }
+
     @Override
     public void run() {
         if (stopped) return;
         if (clock.instant().isBefore(backoffUntil) || !busy.compareAndSet(false, true)) return;
         boolean handedOff = false;
         try {
-            CommandPage page = api.listCommands(channel, PAGE);
+            CommandPage page = api.listCommands(waitSeconds, PAGE);
             backoffSeconds = 5;
-            if (page.runs().isEmpty()) return;
-            scheduler.sync(() -> runAndAck(page.runs()));
+            if (stopped || page.runs().isEmpty()) return;
+            scheduler.sync(() -> runAndAck(page));
             handedOff = true;
         } catch (ApiException e) {
-            if (e.httpStatus == 401 || e.httpStatus == 403) {
-                stopped = true; // chave revogada não volta sozinha: só um novo rivoo secret (motor novo)
+            if (e.unauthorized()) {
+                stopped = true; // chave revogada não volta sozinha: só um pareamento ou rivoo secret (motor novo)
                 onUnauthorized.run();
                 return;
             }
@@ -86,7 +97,12 @@ public final class CommandPoller implements Runnable {
     }
 
     /** Thread do jogo. */
-    private void runAndAck(List<CommandRun> runs) {
+    private void runAndAck(CommandPage page) {
+        List<CommandRun> runs = page.runs();
+        if (stopped) {
+            busy.set(false);
+            return;
+        }
         List<String> ackable;
         try {
             ackable = runSync.apply(runs);
@@ -96,7 +112,8 @@ public final class CommandPoller implements Runnable {
             return;
         }
         if (ackable.isEmpty()) {
-            busy.set(false); // ninguém online para receber: fica na fila
+            if (page.hasMore()) warnStuckHead(runs.size());
+            busy.set(false); // ninguém online (ou sem espaço) para receber: fica na fila
             return;
         }
         try {
@@ -116,5 +133,18 @@ public final class CommandPoller implements Runnable {
             log.warning("Falha ao agendar o ack de comandos " + ackable + ": " + e);
             busy.set(false);
         }
+    }
+
+    /**
+     * A fila não tem cursor: comandos que esperam um jogador offline (ou sem espaço) ocupam o início e,
+     * passando de uma página, os seguintes nunca aparecem. Mitigação: avisar o operador.
+     */
+    private void warnStuckHead(int stuck) {
+        Instant now = clock.instant();
+        Instant last = lastStuckWarning;
+        if (last != null && now.isBefore(last.plus(STUCK_WARNING_EVERY))) return;
+        lastStuckWarning = now;
+        log.warning("Fila de comandos parada: " + stuck + " comando(s) no início da fila esperando jogador"
+                + " online ou espaço no inventário, e há mais depois deles, que não serão lidos até esses saírem.");
     }
 }

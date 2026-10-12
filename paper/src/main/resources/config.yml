@@ -1,8 +1,17 @@
 # Conecte este servidor pelo painel da Rivoo: ao iniciar, o console mostra um código de
-# 8 letras; digite-o em Integrações → Minecraft → Conectar servidor.
-# (Alternativa: crie o servidor com chave no painel e rode no console: rivoo secret <chave>)
+# 8 letras; digite-o em Integrações → Servidores de jogo → Parear servidor.
+# (Alternativa: em "Conectar com chave" o painel gera uma chave rck_...; rode no console: rivoo secret <chave>)
 # Não é preciso editar este arquivo.
 
 rivoo:
-  # Não mexa, exceto em desenvolvimento local (ex.: http://localhost:3000).
+  # Não mexa, exceto em desenvolvimento local (ex.: http://localhost:4100).
   api-url: "https://api.rivoopay.com"
+
+# Opcional. Fila de comandos: a Rivoo segura cada consulta até wait-seconds (0 a 30) esperando comando
+# novo; interval-seconds é o intervalo mínimo entre consultas.
+# delivery:
+#   wait-seconds: 10
+#   interval-seconds: 2
+# Opcional. Intervalo entre consultas do status dos Pix abertos (um pedido por vez).
+# polling:
+#   interval-seconds: 3

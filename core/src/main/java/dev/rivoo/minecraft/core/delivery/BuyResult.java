@@ -11,6 +11,9 @@ public sealed interface BuyResult {
 
     record AlreadyPending(Purchase purchase, Product product) implements BuyResult {}
 
+    /** Pedido sem pagamento (total zero): já está pago e a entrega chega pela fila de comandos. */
+    record Free(Product product) implements BuyResult {}
+
     record UnknownProduct(String sku) implements BuyResult {}
 
     record Failed(String message) implements BuyResult {}

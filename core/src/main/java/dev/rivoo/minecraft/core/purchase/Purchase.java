@@ -4,12 +4,14 @@ import java.time.Instant;
 import java.util.UUID;
 
 public final class Purchase {
+    /** Id do pedido na Rivoo (ord_…). Nome histórico, mantido para o purchases.json não mudar. */
     public final String chargeId;
     public final UUID playerId;
     public final String playerName;
     public final String sku;
     public final int amount;
     public final String brCode;
+    /** Checkout da Rivoo para pagar fora do jogo. */
     public final String url;
     public final Instant createdAt;
     public final Instant expiresAt;

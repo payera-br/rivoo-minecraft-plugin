@@ -62,6 +62,7 @@ public final class BuyCommand implements TabExecutor {
             switch (result) {
                 case BuyResult.Created c -> view.created(online, c.purchase(), c.product(), c.superseded());
                 case BuyResult.AlreadyPending a -> view.reshown(online, a.purchase(), a.product());
+                case BuyResult.Free f -> view.free(online, f.product());
                 case BuyResult.UnknownProduct u -> view.listProducts(online, catalog);
                 case BuyResult.Failed f -> online.sendMessage(Component.text(f.message(), NamedTextColor.RED));
             }

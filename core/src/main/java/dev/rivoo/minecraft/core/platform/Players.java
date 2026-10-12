@@ -9,6 +9,11 @@ public interface Players {
     /** Nome atual, inclusive de jogador offline que já entrou no servidor. */
     Optional<String> name(UUID player);
 
+    /** Jogador online com esse nick (sem diferenciar maiúsculas); vazio se offline. */
+    default Optional<UUID> onlineByName(String name) {
+        return Optional.empty();
+    }
+
     /** Espaços vazios no inventário principal; MAX_VALUE se a plataforma não sabe dizer. */
     default int freeSlots(UUID player) {
         return Integer.MAX_VALUE;

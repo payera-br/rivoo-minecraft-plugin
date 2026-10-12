@@ -54,12 +54,18 @@ public final class PaperPurchaseView implements PurchaseView {
         hud.showBar(player, p);
     }
 
+    /** Pedido sem pagamento (total zero): nada para mostrar além do aviso. */
+    public void free(Player player, Product product) {
+        player.sendMessage(Component.text("Pedido confirmado! Entregando " + product.name() + ".", NamedTextColor.GREEN));
+    }
+
     @Override public void paid(Purchase p, Product product) {
         Player player = server.getPlayer(p.playerId);
         hud.hideBar(player, p.chargeId);
         if (player == null) return;
         maps.removeFrom(player, p.chargeId);
-        player.sendMessage(Component.text("Pagamento confirmado! " + product.name() + " entregue.", NamedTextColor.GREEN));
+        // Os comandos chegam pela fila da Rivoo, logo em seguida (ou quando houver espaço no inventário).
+        player.sendMessage(Component.text("Pagamento confirmado! Entregando " + product.name() + ".", NamedTextColor.GREEN));
         hud.paid(player, p, product.name());
     }
 
