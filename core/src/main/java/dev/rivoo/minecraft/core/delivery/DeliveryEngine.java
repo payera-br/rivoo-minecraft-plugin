@@ -212,11 +212,18 @@ public final class DeliveryEngine {
         runIds.forEach(executedRuns::remove);
     }
 
-    /** UUID do comando; sem ele (pedido da loja web com só o nick), o jogador online com esse nick. */
+    /**
+     * UUID do comando; sem ele (pedido da loja web com só o nick) ou com um UUID que nunca entra aqui (UUID
+     * da Mojang num servidor offline-mode), o jogador online com esse nick.
+     */
     private UUID playerOf(CommandRun run) {
-        if (run.recipientUuid() != null) return run.recipientUuid();
-        if (run.recipientName() == null) return null;
-        return players.onlineByName(run.recipientName()).orElse(null);
+        UUID uuid = run.recipientUuid();
+        if (uuid != null && players.isOnline(uuid)) return uuid;
+        if (run.recipientName() != null) {
+            Optional<UUID> byName = players.onlineByName(run.recipientName());
+            if (byName.isPresent()) return byName.get();
+        }
+        return uuid;
     }
 
     /** Thread do jogo. Pedido pago: tira o mapa e comemora; os comandos chegam pela fila. */
