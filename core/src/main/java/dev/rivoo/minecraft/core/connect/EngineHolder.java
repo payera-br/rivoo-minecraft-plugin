@@ -5,7 +5,7 @@ import dev.rivoo.minecraft.core.delivery.DeliveryEngine;
 
 import java.util.Optional;
 
-/** Motor atual, trocável sem reiniciar (rivoo secret). Chamar swap/stop na thread do jogo. */
+/** Motor atual, trocável sem reiniciar (pareamento ou rivoo secret). Chamar swap/stop na thread do jogo. */
 public final class EngineHolder {
     private volatile DeliveryEngine engine;
     private volatile ServerInfo info;
@@ -14,7 +14,7 @@ public final class EngineHolder {
         return Optional.ofNullable(engine);
     }
 
-    /** Servidor da chave atual; vazio no modo legado (chave de empresa) ou antes de conectar. */
+    /** Conexão da chave atual; vazio antes de conectar ou até a checagem de subida responder. */
     public Optional<ServerInfo> info() {
         return Optional.ofNullable(info);
     }

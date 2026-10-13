@@ -4,6 +4,7 @@ import dev.rivoo.minecraft.core.api.ApiException;
 import dev.rivoo.minecraft.core.api.PairingApi;
 import dev.rivoo.minecraft.core.api.PairingStatus;
 import dev.rivoo.minecraft.core.api.PairingTicket;
+import dev.rivoo.minecraft.core.api.RivooClient;
 
 import java.io.IOException;
 import java.security.SecureRandom;
@@ -17,9 +18,9 @@ import java.util.function.Supplier;
 import java.util.logging.Logger;
 
 /**
- * Pareamento por código ("conectar TV"): sorteia o segredo S, pede um código à Rivoo, mostra no
- * console e consulta até o dono usar o código no painel; então monta cpk_&lt;modo&gt;_&lt;S&gt; e conecta
- * pelo caminho do rivoo secret. tick() roda numa thread assíncrona a cada segundo e faz as
+ * Pareamento por código ("conectar TV"): sorteia o segredo S, pede um código à Rivoo mandando só os
+ * hashes de S, mostra no console e consulta até o dono usar o código no painel; então monta
+ * rck_&lt;S&gt; e conecta pelo caminho do rivoo secret. tick() roda numa thread assíncrona a cada segundo e faz as
  * chamadas de rede; start()/stop() só mexem em flags (seguros na thread do jogo).
  */
 public final class PairingFlow {
@@ -147,7 +148,7 @@ public final class PairingFlow {
         failures = 0;
         nextAt = now.plusSeconds(t.pollSeconds());
         log.warning(CODE_BANNER);
-        log.warning("Conecte este servidor à Rivoo: no painel, Minecraft → Conectar servidor, digite "
+        log.warning("Conecte este servidor à Rivoo: no painel, Integrações → Servidores de jogo → Parear servidor, digite "
                 + t.code() + " (vale 10 min)");
         log.warning(CODE_BANNER);
     }
@@ -168,18 +169,17 @@ public final class PairingFlow {
             return;
         }
         failures = 0;
-        if (!st.connected()) {
+        if (!st.claimed()) {
             nextAt = now.plusSeconds(t.pollSeconds());
             return;
         }
-        String key = (st.sandbox() ? "cpk_sandbox_" : "cpk_live_") + secret;
+        String key = RivooClient.KEY_PREFIX + secret;
         switch (connector.connect(key)) {
             case SecretConnector.Connected c -> {
                 active = false;
                 ticket = null;
                 secret = null;
-                announce.accept("Loja conectada: " + st.companyName() + " · " + st.projectName()
-                        + " · modo " + (st.sandbox() ? "TESTE" : "PRODUÇÃO"));
+                announce.accept("Loja conectada: " + st.projectName() + " · " + st.connectionName());
             }
             case SecretConnector.Rejected r -> {
                 log.warning(REJECTED_WARNING);

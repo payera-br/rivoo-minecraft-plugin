@@ -48,7 +48,6 @@ public final class PlayerListener implements Listener {
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             if (!joined.isOnline()) return;
             guard.sweep(joined);
-            holder.engine().ifPresent(e -> e.onJoin(joined.getUniqueId()));
             view.showBars(joined);
         }, 40L);
     }

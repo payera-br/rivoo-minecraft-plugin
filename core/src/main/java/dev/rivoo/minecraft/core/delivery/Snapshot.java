@@ -4,5 +4,5 @@ import dev.rivoo.minecraft.core.purchase.Purchase;
 
 import java.util.List;
 
-/** @param mode null enquanto o modo auto ainda está decidindo. */
-public record Snapshot(Mode mode, String channel, List<Purchase> pending, List<Purchase> paid) {}
+/** @param catalogLoaded false até a primeira carga do catálogo da Rivoo. */
+public record Snapshot(boolean catalogLoaded, int products, List<Purchase> pending) {}

@@ -9,7 +9,7 @@ commands:
     usage: /comprar <sku>
   rivoo:
     description: Comandos de administração da Rivoo
-    usage: /rivoo <status|simular [chargeId]|secret <chave>|connect>
+    usage: /rivoo <status|secret <chave>|connect>
     permission: rivoo.admin
 permissions:
   rivoo.admin:

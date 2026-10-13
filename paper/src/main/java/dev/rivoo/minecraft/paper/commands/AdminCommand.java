@@ -1,13 +1,10 @@
 package dev.rivoo.minecraft.paper.commands;
 
-import dev.rivoo.minecraft.core.api.ServerInfo;
 import dev.rivoo.minecraft.core.connect.EngineHolder;
 import dev.rivoo.minecraft.core.connect.PairingFlow;
 import dev.rivoo.minecraft.core.connect.SecretConnector;
 import dev.rivoo.minecraft.core.delivery.DeliveryEngine;
-import dev.rivoo.minecraft.core.delivery.Mode;
 import dev.rivoo.minecraft.core.delivery.Snapshot;
-import dev.rivoo.minecraft.core.purchase.Purchase;
 import dev.rivoo.minecraft.core.purchase.PurchaseStore;
 import dev.rivoo.minecraft.paper.RivooPlugin;
 import org.bukkit.command.Command;
@@ -15,7 +12,6 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.command.ConsoleCommandSender;
 import org.bukkit.command.RemoteConsoleCommandSender;
 import org.bukkit.command.TabExecutor;
-import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
@@ -30,7 +26,7 @@ public final class AdminCommand implements TabExecutor {
             "Validando a chave... o resultado aparece no log do servidor (confira com rivoo status).";
     public static final String PAIRING_STARTED = "Gerando código de pareamento; ele aparece no console em instantes."
             + " A chave atual continua valendo até o código ser usado.";
-    static final String USAGE = "Uso: /rivoo <status|simular [chargeId]|secret <chave>|connect>";
+    static final String USAGE = "Uso: /rivoo <status|secret <chave>|connect>";
 
     private final EngineHolder holder;
     private final PurchaseStore store;
@@ -54,9 +50,9 @@ public final class AdminCommand implements TabExecutor {
         String sub = args.length == 0 ? "" : args[0].toLowerCase(Locale.ROOT);
         switch (sub) {
             case "secret" -> secret(sender, args);
-            case "connect" -> connect(sender);
+            // "conectar" é o que o painel manda digitar.
+            case "connect", "conectar" -> connect(sender);
             case "status", "pendentes" -> status(sender);
-            case "simular" -> simulate(sender, args);
             default -> sender.sendMessage(USAGE);
         }
         return true;
@@ -107,48 +103,18 @@ public final class AdminCommand implements TabExecutor {
             sender.sendMessage(pairing.statusLine().orElse(RivooPlugin.NOT_CONNECTED));
             return;
         }
-        holder.info().ifPresent(i -> sender.sendMessage("Servidor: " + i.serverName() + " · projeto "
-                + i.projectName() + " · modo " + (i.sandbox() ? "TESTE" : "PRODUÇÃO")));
+        holder.info().ifPresent(i -> sender.sendMessage("Servidor: " + i.serverName() + " · projeto " + i.projectName()));
         Snapshot s = engine.get().snapshot();
-        String mode = s.mode() == null ? "decidindo" : s.mode().name().toLowerCase(Locale.ROOT);
-        String where = s.mode() == null || s.mode() == Mode.STATUS ? ""
-                : s.channel() == null ? " (chave do servidor)" : " (canal " + s.channel() + ")";
-        sender.sendMessage("Modo de entrega: " + mode + where);
+        sender.sendMessage(s.catalogLoaded() ? "Catálogo: " + s.products() + " produto(s)" : "Catálogo: carregando");
         pairing.statusLine().ifPresent(sender::sendMessage);
-        if (engine.get().revoked()) sender.sendMessage("Chave revogada: rode rivoo secret <chave> no console.");
-        sender.sendMessage("Pendentes: " + s.pending().size() + " | Pagas aguardando entrega: " + s.paid().size());
-        s.pending().forEach(p -> sender.sendMessage(" PENDING " + p.chargeId + " " + p.playerName + " " + p.sku));
-        s.paid().forEach(p -> sender.sendMessage(" PAID    " + p.chargeId + " " + p.playerName + " " + p.sku));
-    }
-
-    private void simulate(CommandSender sender, String[] args) {
-        Optional<DeliveryEngine> engine = holder.engine();
-        if (engine.isEmpty()) {
-            sender.sendMessage(RivooPlugin.NOT_CONNECTED);
-            return;
-        }
-        String chargeId;
-        if (args.length >= 2) {
-            chargeId = args[1];
-        } else if (sender instanceof Player player) {
-            Optional<Purchase> latest = store.latestPendingOf(player.getUniqueId());
-            if (latest.isEmpty()) {
-                sender.sendMessage("Nenhum Pix pendente seu. Use /rivoo simular <chargeId>.");
-                return;
-            }
-            chargeId = latest.get().chargeId;
-        } else {
-            sender.sendMessage("Uso: /rivoo simular <chargeId>");
-            return;
-        }
-        engine.get().simulate(chargeId).whenComplete((ok, error) -> sender.sendMessage(error == null
-                ? "Pagamento simulado para " + chargeId + ". Aguardando o polling..."
-                : "Falha ao simular: " + error.getMessage()));
+        if (engine.get().revoked()) sender.sendMessage("Chave revogada: pareie de novo (rivoo connect) ou rode rivoo secret <chave> no console.");
+        sender.sendMessage("Pix abertos: " + s.pending().size());
+        s.pending().forEach(p -> sender.sendMessage(" " + p.chargeId + " " + p.playerName + " " + p.sku));
     }
 
     @Override
     public List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command command, @NotNull String alias,
                                       String @NotNull [] args) {
-        return args.length == 1 ? List.of("status", "simular", "secret", "connect") : List.of();
+        return args.length == 1 ? List.of("status", "secret", "connect") : List.of();
     }
 }

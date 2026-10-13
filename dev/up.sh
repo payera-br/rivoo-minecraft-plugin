@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Sobe o ambiente local: compila o plugin, instala no servidor, gera a config e roda o compose.
-# Uso: RIVOO_API_KEY=cpk_sandbox_... ./dev/up.sh   (a chave pode vir de um arquivo .env)
+# Uso: ./dev/up.sh   (RIVOO_API_URL opcional, também via .env; padrão: a rivoo-api local em :4100)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 [ -f .env ] && set -a && . ./.env && set +a
@@ -14,10 +14,10 @@ mkdir -p server/plugins/Rivoo
 rm -f server/plugins/rivoo-minecraft-poc-*.jar server/plugins/rivoo-minecraft-paper-*.jar
 cp paper/build/libs/rivoo-minecraft-paper-*.jar server/plugins/
 CONFIG=server/plugins/Rivoo/config.yml
-if [ ! -f "$CONFIG" ] && [ ! -f server/plugins/RivooPoc/config.yml ]; then
-  : "${RIVOO_API_KEY:?Defina RIVOO_API_KEY (cpk_sandbox_...) no ambiente ou em .env}"
-  # Ambiente local usa a chave de empresa (config legada); servidor real conecta com rivoo secret.
-  { cat paper/src/main/resources/config.yml; printf '  api-key: "%s"\n' "${RIVOO_API_KEY}"; } > "$CONFIG"
+if [ ! -f "$CONFIG" ]; then
+  # O servidor conecta pelo código de pareamento que aparece no console; só a URL da API muda.
+  sed "s|https://api.rivoopay.com|${RIVOO_API_URL:-http://host.docker.internal:4100}|" \
+    paper/src/main/resources/config.yml > "$CONFIG"
   echo "    config criada em $CONFIG"
 fi
 
@@ -41,5 +41,6 @@ echo
 echo "Pronto."
 echo "  Jogar no navegador: http://localhost:8080/?ip=minecraft:25565&proxy=localhost:8080&version=1.21.4&username=${NICK}&autoConnect=true"
 echo "  Cliente Java:       localhost:25565 (offline mode)"
-echo "  No jogo: /comprar vip  ->  /rivoo simular"
+echo "  Pareamento: o código aparece em docker compose logs minecraft (painel: Integrações → Servidores de jogo)"
+echo "  No jogo: /comprar vip; pague com npm run dev:pay -- <paymentId> na rivoo-api"
 echo "  Logs: docker compose logs -f minecraft    Parar: ./dev/down.sh"
