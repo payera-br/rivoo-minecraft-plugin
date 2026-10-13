@@ -355,8 +355,9 @@ public final class DeliveryEngine {
             } catch (ApiException e) {
                 log.warning("Falha ao criar pedido para " + playerName + ": " + e.getMessage());
                 if (e.unauthorized()) markRevoked();
-                // 409/422 trazem um título em português feito para o comprador (ex.: "Loja indisponível no momento").
-                boolean forBuyer = (e.httpStatus == 409 || e.httpStatus == 422) && e.title != null;
+                // 403/409/422 trazem um título em português feito para o comprador (ex.: "Loja indisponível no
+                // momento", "Compra não permitida nesta loja").
+                boolean forBuyer = (e.httpStatus == 403 || e.httpStatus == 409 || e.httpStatus == 422) && e.title != null;
                 outcome = new BuyResult.Failed(forBuyer ? e.title : CREATE_FAILED);
             } catch (Exception e) {
                 log.warning("Falha ao criar pedido para " + playerName + ": " + e.getMessage());
