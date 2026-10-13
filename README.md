@@ -35,6 +35,15 @@ Requisitos: Paper (ou fork, como Purpur) 1.21.x com Java 21, e uma conta na Rivo
 3. Pagou: o plugin executa os comandos do pacote. Se o jogador estiver offline, entrega quando ele voltar.
 4. Reiniciar o servidor não perde nada: compras pendentes e o QR do mapa continuam valendo.
 
+### Opções do comando (painel)
+
+- **Esperar o jogador online**: o comando fica na fila até o jogador entrar.
+- **Espaços livres no inventário** (0.3.0+): o comando espera o jogador ter N espaços livres no inventário
+  principal e avisa no chat ("Libere N espaços…", no máximo a cada 5 minutos). Versões anteriores ignoram
+  a opção e executam direto.
+- **Repetir**: a Rivoo agenda a próxima execução depois que o plugin confirma a anterior; nada muda no
+  plugin.
+
 ## Desenvolvimento
 
 ```

@@ -23,6 +23,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -242,6 +243,18 @@ public final class DeliveryEngine {
      * requireOnline com jogador offline: não executa e não dá ack (fica na fila). PURCHASED de uma
      * compra local aberta marca a compra como DELIVERED e mostra a confirmação uma única vez.
      */
+    static final Duration SLOTS_WARN_EVERY = Duration.ofMinutes(5);
+    private final Map<UUID, Instant> slotsWarned = new ConcurrentHashMap<>();
+
+    /** Avisa o jogador que falta espaço, no máximo uma vez a cada 5 minutos. */
+    private void warnSlots(UUID player, int slots) {
+        Instant now = clock.instant();
+        Instant last = slotsWarned.get(player);
+        if (last != null && last.plus(SLOTS_WARN_EVERY).isAfter(now)) return;
+        slotsWarned.put(player, now);
+        players.message(player, "§eLibere " + slots + " espaços no inventário para receber sua compra.");
+    }
+
     List<String> runCommands(List<CommandRun> runs) {
         List<String> ackable = new ArrayList<>();
         for (CommandRun run : runs) {
@@ -252,6 +265,13 @@ public final class DeliveryEngine {
                 continue;
             }
             if (run.requireOnline() && !online) continue;
+            if (run.requiredSlots() > 0) {
+                if (!online) continue;
+                if (players.freeSlots(player) < run.requiredSlots()) {
+                    warnSlots(player, run.requiredSlots());
+                    continue; // sem ack: volta no próximo poll
+                }
+            }
             try {
                 commands.runAsConsole(run.command());
             } catch (RuntimeException e) {

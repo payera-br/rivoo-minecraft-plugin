@@ -158,7 +158,9 @@ public final class RivooClient implements RivooApi, PairingApi {
             JsonObject o = el.getAsJsonObject();
             runs.add(new CommandRun(str(o, "id"), str(o, "chargeId"), str(o, "trigger"), str(o, "command"),
                     str(o, "playerRef"), str(o, "playerName"),
-                    !o.has("requireOnline") || o.get("requireOnline").getAsBoolean()));
+                    !o.has("requireOnline") || o.get("requireOnline").getAsBoolean(),
+                    o.has("requiredSlots") && !o.get("requiredSlots").isJsonNull()
+                            ? o.get("requiredSlots").getAsInt() : 0));
         }
         return new CommandPage(runs, page.has("hasMore") && page.get("hasMore").getAsBoolean());
     }
