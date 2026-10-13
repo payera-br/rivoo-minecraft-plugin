@@ -8,5 +8,5 @@ import java.util.List;
 public final class RecordingCommands implements CommandRunner {
     public final List<String> ran = new ArrayList<>();
 
-    @Override public void runAsConsole(String command) { ran.add(command); }
+    @Override public boolean runAsConsole(String command) { ran.add(command); return true; }
 }

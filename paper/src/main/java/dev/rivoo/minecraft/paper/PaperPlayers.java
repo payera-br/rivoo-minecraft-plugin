@@ -1,8 +1,11 @@
 package dev.rivoo.minecraft.paper;
 
+import dev.rivoo.minecraft.core.api.OnlinePlayer;
 import dev.rivoo.minecraft.core.platform.Players;
 import org.bukkit.Server;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -33,6 +36,12 @@ public final class PaperPlayers implements Players {
             if (item == null || item.getType().isAir()) free++;
         }
         return free;
+    }
+
+    @Override public List<OnlinePlayer> online() {
+        List<OnlinePlayer> all = new ArrayList<>();
+        for (var p : server.getOnlinePlayers()) all.add(new OnlinePlayer(p.getUniqueId(), p.getName(), freeSlots(p.getUniqueId())));
+        return all;
     }
 
     @Override public void message(UUID player, String text) {

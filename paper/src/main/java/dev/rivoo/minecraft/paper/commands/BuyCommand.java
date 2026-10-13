@@ -7,6 +7,7 @@ import dev.rivoo.minecraft.core.connect.EngineHolder;
 import dev.rivoo.minecraft.core.delivery.BuyResult;
 import dev.rivoo.minecraft.core.delivery.DeliveryEngine;
 import dev.rivoo.minecraft.paper.hud.PaperPurchaseView;
+import dev.rivoo.minecraft.paper.menu.ShopMenu;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
@@ -26,11 +27,18 @@ public final class BuyCommand implements TabExecutor {
     private final EngineHolder holder;
     private final Catalog catalog;
     private final PaperPurchaseView view;
+    private final ShopMenu menu;
 
-    public BuyCommand(EngineHolder holder, Catalog catalog, PaperPurchaseView view) {
+    public BuyCommand(EngineHolder holder, Catalog catalog, PaperPurchaseView view, ShopMenu menu) {
         this.holder = holder;
         this.catalog = catalog;
         this.view = view;
+        this.menu = menu;
+    }
+
+    /** O menu de baú; sem produto para mostrar, a lista no chat (que diz que está vazia). */
+    private void showProducts(Player player) {
+        if (!menu.open(player, catalog)) view.listProducts(player, catalog);
     }
 
     @Override
@@ -45,7 +53,7 @@ public final class BuyCommand implements TabExecutor {
             return true;
         }
         if (args.length != 1 || catalog.find(args[0]).isEmpty()) {
-            view.listProducts(player, catalog);
+            showProducts(player);
             return true;
         }
         UUID id = player.getUniqueId();
@@ -63,7 +71,7 @@ public final class BuyCommand implements TabExecutor {
                 case BuyResult.Created c -> view.created(online, c.purchase(), c.product(), c.superseded());
                 case BuyResult.AlreadyPending a -> view.reshown(online, a.purchase(), a.product());
                 case BuyResult.Free f -> view.free(online, f.product());
-                case BuyResult.UnknownProduct u -> view.listProducts(online, catalog);
+                case BuyResult.UnknownProduct u -> showProducts(online);
                 case BuyResult.Failed f -> online.sendMessage(Component.text(f.message(), NamedTextColor.RED));
             }
         });

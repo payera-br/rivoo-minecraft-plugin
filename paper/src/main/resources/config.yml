@@ -10,7 +10,7 @@ rivoo:
 # Opcional. Fila de comandos: a Rivoo segura cada consulta até wait-seconds (0 a 30) esperando comando
 # novo; interval-seconds é o intervalo mínimo entre consultas.
 # delivery:
-#   wait-seconds: 10
+#   wait-seconds: 5
 #   interval-seconds: 2
 # Opcional. Intervalo entre consultas do status dos Pix abertos (um pedido por vez).
 # polling:

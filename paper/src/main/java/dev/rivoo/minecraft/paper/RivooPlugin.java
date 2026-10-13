@@ -9,12 +9,14 @@ import dev.rivoo.minecraft.core.connect.KeyFile;
 import dev.rivoo.minecraft.core.connect.PairingFlow;
 import dev.rivoo.minecraft.core.connect.SecretConnector;
 import dev.rivoo.minecraft.core.delivery.DeliveryConfig;
+import dev.rivoo.minecraft.core.delivery.AckStore;
 import dev.rivoo.minecraft.core.delivery.DeliveryEngine;
 import dev.rivoo.minecraft.core.purchase.PurchaseStore;
 import dev.rivoo.minecraft.core.purchase.State;
 import dev.rivoo.minecraft.paper.commands.AdminCommand;
 import dev.rivoo.minecraft.paper.commands.BuyCommand;
 import dev.rivoo.minecraft.paper.hud.PaperPurchaseView;
+import dev.rivoo.minecraft.paper.menu.ShopMenu;
 import dev.rivoo.minecraft.paper.hud.PixHud;
 import dev.rivoo.minecraft.paper.listener.PlayerListener;
 import dev.rivoo.minecraft.core.catalog.Product;
@@ -91,7 +93,9 @@ public final class RivooPlugin extends JavaPlugin {
                 Clock.systemUTC(), getLogger(), this::announce, PairingFlow::randomSecret);
         Bukkit.getScheduler().runTaskTimerAsynchronously(this, pairing::tick, 20L, 20L);
 
-        BuyCommand buy = new BuyCommand(holder, catalog, view);
+        ShopMenu menu = new ShopMenu();
+        getServer().getPluginManager().registerEvents(menu, this);
+        BuyCommand buy = new BuyCommand(holder, catalog, view, menu);
         Objects.requireNonNull(getCommand("comprar")).setExecutor(buy);
         Objects.requireNonNull(getCommand("comprar")).setTabCompleter(buy);
         AdminCommand admin = new AdminCommand(holder, store, connector, pairing,
@@ -145,7 +149,8 @@ public final class RivooPlugin extends JavaPlugin {
         DeliveryConfig config = PaperConfig.delivery(getConfig(), facts.pluginVersion(), details);
         DeliveryEngine engine = new DeliveryEngine(api, store, catalog, new PaperScheduler(this),
                 new PaperPlayers(getServer()), cmd -> Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd), view,
-                config, getLogger(), Clock.systemUTC());
+                config, new AckStore(getDataFolder().toPath().resolve("acks.json"), getLogger()), getLogger(),
+                Clock.systemUTC());
         // Chave revogada (no polling ou na checagem de subida): o pareamento recomeça sozinho.
         engine.onRevoked(pairing::startIfIdle);
         return engine;

@@ -126,7 +126,7 @@ public final class RivooClient implements RivooApi, PairingApi {
                 String sku = str(o, "sku");
                 if (sku == null) continue;
                 String name = str(o, "name");
-                products.add(new Product(sku, name == null ? sku : name, cents(obj(o, "price")), List.of()));
+                products.add(new Product(sku, name == null ? sku : name, cents(obj(o, "price")), List.of(), str(o, "icon")));
             }
         }
         return products;
@@ -170,11 +170,25 @@ public final class RivooClient implements RivooApi, PairingApi {
     }
 
     @Override
-    public CommandPage listCommands(int waitSeconds, int limit) throws IOException, InterruptedException {
+    public CommandPage pollCommands(int waitSeconds, int limit, List<OnlinePlayer> online)
+            throws IOException, InterruptedException {
+        JsonObject body = new JsonObject();
+        body.addProperty("wait", waitSeconds);
+        body.addProperty("limit", limit);
+        JsonArray players = new JsonArray();
+        for (OnlinePlayer p : online) {
+            JsonObject o = new JsonObject();
+            if (p.uuid() != null) o.addProperty("uuid", p.uuid().toString());
+            o.addProperty("name", p.name());
+            o.addProperty("freeSlots", Math.max(0, Math.min(36, p.freeSlots())));
+            players.add(o);
+        }
+        body.add("players", players);
         // Long-poll: a requisição pode ficar aberta waitSeconds; o timeout tem que passar disso.
-        JsonObject page = send(authed("/v1/agent/commands?wait=" + waitSeconds + "&limit=" + limit)
+        JsonObject page = send(post("/v1/agent/commands", body)
+                .header("Authorization", "Bearer " + apiKey)
                 .timeout(TIMEOUT.plusSeconds(waitSeconds))
-                .GET().build());
+                .build());
         List<CommandRun> runs = new ArrayList<>();
         for (JsonElement el : page.getAsJsonArray("data")) {
             JsonObject o = el.getAsJsonObject();
@@ -185,15 +199,30 @@ public final class RivooClient implements RivooApi, PairingApi {
                     o.has("requiredSlots") && !o.get("requiredSlots").isJsonNull()
                             ? o.get("requiredSlots").getAsInt() : 0));
         }
-        return new CommandPage(runs, page.has("hasMore") && page.get("hasMore").getAsBoolean());
+        List<CommandPage.SlotWait> needSlots = new ArrayList<>();
+        if (page.has("needSlots") && page.get("needSlots").isJsonArray()) {
+            for (JsonElement el : page.getAsJsonArray("needSlots")) {
+                JsonObject o = el.getAsJsonObject();
+                JsonObject recipient = obj(o, "recipient");
+                needSlots.add(new CommandPage.SlotWait(uuid(str(recipient, "uuid")), str(recipient, "name"),
+                        o.get("requiredSlots").getAsInt()));
+            }
+        }
+        return new CommandPage(runs, page.has("hasMore") && page.get("hasMore").getAsBoolean(), needSlots);
     }
 
     @Override
-    public List<String> ackCommands(List<String> runIds) throws IOException, InterruptedException {
+    public List<String> ackCommands(List<AckResult> results) throws IOException, InterruptedException {
         JsonObject body = new JsonObject();
-        JsonArray ids = new JsonArray();
-        runIds.stream().distinct().forEach(ids::add);
-        body.add("ids", ids);
+        JsonArray list = new JsonArray();
+        for (AckResult r : results) {
+            JsonObject o = new JsonObject();
+            o.addProperty("id", r.id());
+            o.addProperty("status", r.ok() ? "ok" : "failed");
+            if (r.error() != null) o.addProperty("error", r.error());
+            list.add(o);
+        }
+        body.add("results", list);
         JsonObject res = send(post("/v1/agent/commands/ack", body)
                 .header("Authorization", "Bearer " + apiKey)
                 .build());

@@ -1,8 +1,11 @@
 package dev.rivoo.minecraft.core.delivery;
 
+import dev.rivoo.minecraft.core.api.AckResult;
 import dev.rivoo.minecraft.core.api.AgentOrder;
 import dev.rivoo.minecraft.core.api.ApiException;
+import dev.rivoo.minecraft.core.api.CommandPage;
 import dev.rivoo.minecraft.core.api.CommandRun;
+import dev.rivoo.minecraft.core.api.OnlinePlayer;
 import dev.rivoo.minecraft.core.api.RivooApi;
 import dev.rivoo.minecraft.core.catalog.Catalog;
 import dev.rivoo.minecraft.core.catalog.Product;
@@ -61,11 +64,15 @@ public final class DeliveryEngine {
     private final Set<UUID> creating = ConcurrentHashMap.newKeySet();
     private final List<Scheduler.Task> tasks = new ArrayList<>();
     private CommandPoller poller;
-    /** Runs executados cujo ack ainda não foi confirmado: se voltarem da fila, só recebem ack (memória). */
-    private final Set<String> executedRuns = ConcurrentHashMap.newKeySet();
+    /** Runs executados cujo ack ainda não foi confirmado: se voltarem da fila, só recebem o ack guardado. */
+    final AckStore acks;
+    /** Quem está online (lido na thread do jogo a cada segundo), para a consulta da fila. */
+    private volatile List<OnlinePlayer> online = List.of();
 
     public DeliveryEngine(RivooApi api, PurchaseStore store, Catalog catalog, Scheduler scheduler, Players players,
-                          CommandRunner commands, PurchaseView view, DeliveryConfig config, Logger log, Clock clock) {
+                          CommandRunner commands, PurchaseView view, DeliveryConfig config, AckStore acks,
+                          Logger log, Clock clock) {
+        this.acks = acks;
         this.api = api;
         this.store = store;
         this.catalog = catalog;
@@ -84,8 +91,10 @@ public final class DeliveryEngine {
         track(scheduler.repeatAsync(this::reloadCatalog, CATALOG_RELOAD));
         scheduler.async(this::heartbeat);
         track(scheduler.repeatAsync(this::heartbeat, config.heartbeatInterval()));
-        poller = new CommandPoller(api, config.commandWaitSeconds(), scheduler, this::runCommands,
-                this::forgetAcked, log, clock, this::markRevoked);
+        track(scheduler.repeatSync(this::refreshOnline, Duration.ofSeconds(1)));
+        scheduler.async(this::flushStoredAcks);
+        poller = new CommandPoller(api, config.commandWaitSeconds(), scheduler, () -> online, this::runCommands,
+                this::forgetAcked, this::warnSlots, log, clock, this::markRevoked);
         track(scheduler.repeatAsync(poller, config.commandInterval()));
         OrderPoller orders = new OrderPoller(api, store,
                 p -> scheduler.sync(() -> confirmPaid(p)),
@@ -164,6 +173,14 @@ public final class DeliveryEngine {
     static final Duration SLOTS_WARN_EVERY = Duration.ofMinutes(5);
     private final Map<UUID, Instant> slotsWarned = new ConcurrentHashMap<>();
 
+    /** Thread do jogo. Quem tem comando esperando espaço no inventário (a Rivoo diz quem). */
+    void warnSlots(List<CommandPage.SlotWait> waits) {
+        for (CommandPage.SlotWait w : waits) {
+            UUID player = playerOf(new CommandRun("", "", w.uuid(), w.name(), true, w.requiredSlots()));
+            if (player != null && players.isOnline(player)) warnSlots(player, w.requiredSlots());
+        }
+    }
+
     /** Avisa o jogador que falta espaço, no máximo uma vez a cada 5 minutos. */
     private void warnSlots(UUID player, int slots) {
         Instant now = clock.instant();
@@ -173,16 +190,40 @@ public final class DeliveryEngine {
         players.message(player, "§eLibere " + slots + " espaços no inventário para receber sua compra.");
     }
 
+    /** Thread do jogo. */
+    void refreshOnline() {
+        try {
+            online = List.copyOf(players.online());
+        } catch (RuntimeException e) {
+            log.fine("Falha ao ler os jogadores online: " + e);
+        }
+    }
+
+    /** Thread assíncrona. Acks que ficaram para trás (servidor reiniciou antes de confirmar). */
+    void flushStoredAcks() {
+        List<AckResult> stored = acks.all();
+        if (stored.isEmpty() || stopped) return;
+        try {
+            forgetAcked(api.ackCommands(stored));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            log.fine("Acks guardados ficam para a próxima consulta: " + e.getMessage());
+        }
+    }
+
     /**
-     * Thread do jogo. Executa os comandos prontos da Rivoo e devolve os ids que podem receber ack.
-     * requireOnline com o jogador offline, ou sem os espaços pedidos: não executa e não dá ack (fica na
-     * fila). Comando sem jogador nenhum (ex.: enviado pelo painel) executa direto.
+     * Thread do jogo. Executa os comandos prontos da Rivoo e devolve o resultado de cada um para o ack.
+     * A Rivoo só manda o que dá para executar (jogador online e com espaço), mas o jogador pode ter saído
+     * desde a consulta: aí não executa e não dá ack (fica na fila). Comando sem jogador nenhum (ex.:
+     * enviado pelo painel) executa direto.
      */
-    List<String> runCommands(List<CommandRun> runs) {
-        List<String> ackable = new ArrayList<>();
+    List<AckResult> runCommands(List<CommandRun> runs) {
+        List<AckResult> ackable = new ArrayList<>();
         for (CommandRun run : runs) {
-            if (executedRuns.contains(run.id())) { // executado antes, mas o ack não chegou
-                ackable.add(run.id());
+            Optional<AckResult> done = acks.get(run.id());
+            if (done.isPresent()) { // executado antes, mas o ack não chegou
+                ackable.add(done.get());
                 continue;
             }
             UUID player = playerOf(run);
@@ -195,21 +236,33 @@ public final class DeliveryEngine {
                     continue; // sem ack: volta na próxima consulta
                 }
             }
-            try {
-                commands.runAsConsole(run.command());
-            } catch (RuntimeException e) {
-                // Exceção do comando não se resolve repetindo: registra e confirma para não travar a fila.
-                log.warning("Comando falhou (" + run.id() + ", " + run.command() + "): " + e);
-            }
-            executedRuns.add(run.id());
-            ackable.add(run.id());
-            log.info("Comando executado: " + run.id() + " " + run.command());
+            AckResult result = execute(run);
+            acks.put(result);
+            ackable.add(result);
         }
         return ackable;
     }
 
+    /**
+     * Falha não se resolve repetindo sozinha: vai para a Rivoo como falha (o pedido mostra "Entrega
+     * falhou" e o painel tenta de novo) e a fila segue.
+     */
+    private AckResult execute(CommandRun run) {
+        try {
+            if (commands.runAsConsole(run.command())) {
+                log.info("Comando executado: " + run.id() + " " + run.command());
+                return AckResult.ok(run.id());
+            }
+            log.warning("Comando recusado pelo servidor (" + run.id() + "): " + run.command());
+            return AckResult.failed(run.id(), "O servidor não reconheceu o comando: " + run.command());
+        } catch (RuntimeException e) {
+            log.warning("Comando falhou (" + run.id() + ", " + run.command() + "): " + e);
+            return AckResult.failed(run.id(), e.getClass().getSimpleName() + ": " + e.getMessage());
+        }
+    }
+
     void forgetAcked(List<String> runIds) {
-        runIds.forEach(executedRuns::remove);
+        acks.forget(runIds);
     }
 
     /**
@@ -274,7 +327,7 @@ public final class DeliveryEngine {
             try {
                 // A Rivoo cobra o preço do produto (com regras e descontos); o plugin usa o total que voltou.
                 AgentOrder order = api.createOrder(sku, playerId, playerName, idempotencyKey);
-                Product sold = new Product(p.sku(), p.name(), order.amount(), p.commands());
+                Product sold = new Product(p.sku(), p.name(), order.amount(), p.commands(), p.icon());
                 if (!order.payable()) {
                     if ("PAID".equals(order.status())) {
                         log.info("Pedido gratuito: " + order.id() + " (" + playerName + ", " + sku + ")");
