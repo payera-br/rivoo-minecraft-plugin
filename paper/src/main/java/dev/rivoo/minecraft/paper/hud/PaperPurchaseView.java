@@ -90,6 +90,10 @@ public final class PaperPurchaseView implements PurchaseView {
     }
 
     public void listProducts(Player player, Catalog catalog) {
+        if (catalog.all().isEmpty()) {
+            player.sendMessage(Component.text("Nenhum produto à venda ainda.", NamedTextColor.GRAY));
+            return;
+        }
         player.sendMessage(Component.text("Produtos disponíveis:", NamedTextColor.GOLD));
         for (Product product : catalog.all()) {
             player.sendMessage(Component.text(" " + product.name() + " - " + Money.format(product.price()) + " ",

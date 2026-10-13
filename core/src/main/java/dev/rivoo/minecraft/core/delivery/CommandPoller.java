@@ -1,25 +1,27 @@
 package dev.rivoo.minecraft.core.delivery;
 
+import dev.rivoo.minecraft.core.api.AckResult;
 import dev.rivoo.minecraft.core.api.ApiException;
 import dev.rivoo.minecraft.core.api.CommandPage;
 import dev.rivoo.minecraft.core.api.CommandRun;
+import dev.rivoo.minecraft.core.api.OnlinePlayer;
 import dev.rivoo.minecraft.core.api.RivooApi;
 import dev.rivoo.minecraft.core.platform.Scheduler;
 
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.logging.Logger;
 
 /**
- * Consome a fila de comandos da conexão (GET /v1/agent/commands em long-poll + POST /v1/agent/commands/ack).
- * Consulta async; execução na thread do jogo; ack async. O flag busy é sempre liberado. Atraso e
- * repetição são da Rivoo: um comando só aparece na fila quando vence, e a próxima repetição é agendada
- * a partir do ack.
+ * Consome a fila de comandos da conexão (POST /v1/agent/commands em long-poll, dizendo quem está online,
+ * + POST /v1/agent/commands/ack com o resultado de cada um). Consulta async; execução na thread do jogo;
+ * ack async. O flag busy é sempre liberado. Atraso e repetição são da Rivoo: um comando só aparece na
+ * fila quando vence e dá para executar, e a próxima repetição é agendada a partir do ack.
  */
 public final class CommandPoller implements Runnable {
     static final int PAGE = 100;
@@ -27,7 +29,9 @@ public final class CommandPoller implements Runnable {
     private final RivooApi api;
     private final int waitSeconds;
     private final Scheduler scheduler;
-    private final Function<List<CommandRun>, List<String>> runSync;
+    private final Function<List<CommandRun>, List<AckResult>> runSync;
+    private final Supplier<List<OnlinePlayer>> online;
+    private final Consumer<List<CommandPage.SlotWait>> onNeedSlots;
     private final Consumer<List<String>> onAcked;
     private final Logger log;
     private final Clock clock;
@@ -36,13 +40,12 @@ public final class CommandPoller implements Runnable {
     private final AtomicBoolean busy = new AtomicBoolean(false);
     private volatile Instant backoffUntil = Instant.EPOCH;
     private volatile long backoffSeconds = 5;
-    /** Intervalo mínimo entre avisos de fila parada, para não poluir o log a cada ciclo. */
-    static final Duration STUCK_WARNING_EVERY = Duration.ofMinutes(5);
-    private volatile Instant lastStuckWarning;
-
-    public CommandPoller(RivooApi api, int waitSeconds, Scheduler scheduler,
-                         Function<List<CommandRun>, List<String>> runSync, Consumer<List<String>> onAcked,
-                         Logger log, Clock clock, Runnable onUnauthorized) {
+    public CommandPoller(RivooApi api, int waitSeconds, Scheduler scheduler, Supplier<List<OnlinePlayer>> online,
+                         Function<List<CommandRun>, List<AckResult>> runSync, Consumer<List<String>> onAcked,
+                         Consumer<List<CommandPage.SlotWait>> onNeedSlots, Logger log, Clock clock,
+                         Runnable onUnauthorized) {
+        this.online = online;
+        this.onNeedSlots = onNeedSlots;
         this.onAcked = onAcked;
         this.onUnauthorized = onUnauthorized;
         this.api = api;
@@ -68,8 +71,9 @@ public final class CommandPoller implements Runnable {
         if (clock.instant().isBefore(backoffUntil) || !busy.compareAndSet(false, true)) return;
         boolean handedOff = false;
         try {
-            CommandPage page = api.listCommands(waitSeconds, PAGE);
+            CommandPage page = api.pollCommands(waitSeconds, PAGE, online.get());
             backoffSeconds = 5;
+            if (!stopped && !page.needSlots().isEmpty()) scheduler.sync(() -> onNeedSlots.accept(page.needSlots()));
             if (stopped || page.runs().isEmpty()) return;
             scheduler.sync(() -> runAndAck(page));
             handedOff = true;
@@ -79,21 +83,25 @@ public final class CommandPoller implements Runnable {
                 onUnauthorized.run();
                 return;
             }
-            if (e.rateLimited()) {
-                long wait = Math.max(e.retryAfterSeconds, backoffSeconds);
-                backoffUntil = clock.instant().plusSeconds(wait);
-                backoffSeconds = Math.min(backoffSeconds * 2, 120);
-                log.warning("Rate limit na fila de comandos (429). Pausando por " + wait + "s");
-            } else {
-                log.warning("Erro consultando a fila de comandos: " + e.getMessage());
-            }
+            long wait = backOff(e.rateLimited() ? e.retryAfterSeconds : 0);
+            log.warning((e.rateLimited() ? "Rate limit na fila de comandos (429)" : "Erro consultando a fila de comandos: " + e.getMessage())
+                    + ". Pausando por " + wait + "s");
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         } catch (Exception e) {
-            log.warning("Falha consultando a fila de comandos: " + e);
+            long wait = backOff(0);
+            log.warning("Falha consultando a fila de comandos: " + e + ". Pausando por " + wait + "s");
         } finally {
             if (!handedOff) busy.set(false);
         }
+    }
+
+    /** Pausa de 5 s, dobrando até 120 s (ou o Retry-After, se maior) enquanto os erros seguirem. */
+    private long backOff(long retryAfterSeconds) {
+        long wait = Math.max(retryAfterSeconds, backoffSeconds);
+        backoffUntil = clock.instant().plusSeconds(wait);
+        backoffSeconds = Math.min(backoffSeconds * 2, 120);
+        return wait;
     }
 
     /** Thread do jogo. */
@@ -103,7 +111,7 @@ public final class CommandPoller implements Runnable {
             busy.set(false);
             return;
         }
-        List<String> ackable;
+        List<AckResult> ackable;
         try {
             ackable = runSync.apply(runs);
         } catch (RuntimeException e) {
@@ -112,8 +120,7 @@ public final class CommandPoller implements Runnable {
             return;
         }
         if (ackable.isEmpty()) {
-            if (page.hasMore()) warnStuckHead(runs.size());
-            busy.set(false); // ninguém online (ou sem espaço) para receber: fica na fila
+            busy.set(false); // o jogador saiu entre a consulta e a execução: fica na fila
             return;
         }
         try {
@@ -123,28 +130,15 @@ public final class CommandPoller implements Runnable {
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 } catch (Exception e) {
-                    // sem ack o run volta na próxima consulta e é executado de novo (pelo menos uma vez)
-                    log.warning("Falha no ack de comandos " + ackable + ": " + e.getMessage());
+                    // sem ack o run volta na próxima consulta e recebe o ack guardado (acks.json), sem rodar de novo
+                    log.warning("Falha no ack de " + ackable.size() + " comando(s): " + e.getMessage());
                 } finally {
                     busy.set(false);
                 }
             });
         } catch (RuntimeException e) {
-            log.warning("Falha ao agendar o ack de comandos " + ackable + ": " + e);
+            log.warning("Falha ao agendar o ack de " + ackable.size() + " comando(s): " + e);
             busy.set(false);
         }
-    }
-
-    /**
-     * A fila não tem cursor: comandos que esperam um jogador offline (ou sem espaço) ocupam o início e,
-     * passando de uma página, os seguintes nunca aparecem. Mitigação: avisar o operador.
-     */
-    private void warnStuckHead(int stuck) {
-        Instant now = clock.instant();
-        Instant last = lastStuckWarning;
-        if (last != null && now.isBefore(last.plus(STUCK_WARNING_EVERY))) return;
-        lastStuckWarning = now;
-        log.warning("Fila de comandos parada: " + stuck + " comando(s) no início da fila esperando jogador"
-                + " online ou espaço no inventário, e há mais depois deles, que não serão lidos até esses saírem.");
     }
 }

@@ -13,7 +13,7 @@ final class PaperConfig {
     static DeliveryConfig delivery(FileConfiguration config, String agentVersion, Map<String, Object> details) {
         return new DeliveryConfig(
                 Duration.ofSeconds(Math.max(1, config.getLong("delivery.interval-seconds", 2))),
-                (int) Math.min(30, Math.max(0, config.getLong("delivery.wait-seconds", 10))),
+                (int) Math.min(30, Math.max(0, config.getLong("delivery.wait-seconds", 5))),
                 Duration.ofSeconds(Math.max(3, config.getLong("polling.interval-seconds", 3))),
                 Duration.ofSeconds(60),
                 agentVersion, details);

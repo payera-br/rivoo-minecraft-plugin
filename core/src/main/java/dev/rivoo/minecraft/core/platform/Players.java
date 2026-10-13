@@ -19,6 +19,11 @@ public interface Players {
         return Integer.MAX_VALUE;
     }
 
+    /** Thread do jogo. Quem está online agora, com os espaços livres de cada um. */
+    default java.util.List<dev.rivoo.minecraft.core.api.OnlinePlayer> online() {
+        return java.util.List.of();
+    }
+
     /** Mensagem no chat do jogador online; nada se offline. */
     default void message(UUID player, String text) {}
 }

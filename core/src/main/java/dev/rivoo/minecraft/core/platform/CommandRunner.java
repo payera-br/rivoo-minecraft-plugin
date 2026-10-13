@@ -1,6 +1,6 @@
 package dev.rivoo.minecraft.core.platform;
 
 public interface CommandRunner {
-    /** Thread do jogo. */
-    void runAsConsole(String command);
+    /** Thread do jogo. false = o servidor não reconheceu ou recusou o comando. */
+    boolean runAsConsole(String command);
 }

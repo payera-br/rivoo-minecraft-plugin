@@ -32,11 +32,13 @@ public interface RivooApi {
     String orderStatus(String orderId) throws IOException, InterruptedException;
 
     /**
-     * {@code GET /v1/agent/commands}: comandos vencidos da conexão, na ordem de execução. Long-poll: a
-     * API responde assim que houver comandos, ou vazio depois de {@code waitSeconds}.
+     * {@code POST /v1/agent/commands}: comandos vencidos da conexão que dá para executar agora, dado quem
+     * está online (e com quantos espaços livres). Comandos esperando jogador offline ou inventário cheio
+     * não voltam, então não seguram a fila. Long-poll: a API responde assim que houver comandos, ou vazio
+     * depois de {@code waitSeconds}.
      */
-    CommandPage listCommands(int waitSeconds, int limit) throws IOException, InterruptedException;
+    CommandPage pollCommands(int waitSeconds, int limit, List<OnlinePlayer> online) throws IOException, InterruptedException;
 
-    /** {@code POST /v1/agent/commands/ack}: devolve os ids que saíram da fila (acked + ignored). */
-    List<String> ackCommands(List<String> runIds) throws IOException, InterruptedException;
+    /** {@code POST /v1/agent/commands/ack} com o resultado de cada um: devolve os ids que saíram da fila. */
+    List<String> ackCommands(List<AckResult> results) throws IOException, InterruptedException;
 }

@@ -26,7 +26,7 @@ Requisitos: Paper (ou fork, como Purpur) 1.21.x com Java 21, e uma conta na Rivo
 
 | Comando | Quem | O que faz |
 |---|---|---|
-| `/comprar [pacote]` | jogador | Lista os pacotes ou gera o Pix de um deles |
+| `/comprar [pacote]` | jogador | Abre o menu da loja (baú com os pacotes) ou gera o Pix de um deles |
 | `/rivoo status` | admin | Servidor conectado, catálogo e Pix abertos |
 | `rivoo connect` (ou `conectar`) | console | Gera um novo código de pareamento |
 | `rivoo secret <chave>` | console | Conecta com uma chave `rck_…` gerada no painel ("Conectar com chave"), em vez do código |
@@ -38,15 +38,22 @@ Requisitos: Paper (ou fork, como Purpur) 1.21.x com Java 21, e uma conta na Rivo
 2. O jogador recebe o "Pergaminho de Pix": um mapa com o QR que só ele vê e que não sai do inventário, mais
    `[Copiar Pix]` e `[Abrir checkout]` no chat.
 3. Pagou: o mapa some e o plugin executa os comandos que a Rivoo coloca na fila do servidor (inclusive os
-   de compras feitas na loja web). Se o jogador estiver offline, o comando espera ele voltar.
-4. Reiniciar o servidor não perde nada: Pix abertos e o QR do mapa continuam valendo, e a fila fica na Rivoo.
-5. Chave revogada ou servidor reconectado no painel: o plugin mostra um código de pareamento novo sozinho.
+   de compras feitas na loja web). A cada consulta o plugin diz quem está online e com quantos espaços
+   livres, e a Rivoo só devolve o que dá para executar agora: comando esperando jogador offline ou
+   inventário cheio não segura os outros.
+4. Cada comando volta para a Rivoo como ok ou falhou (comando desconhecido, exceção). Falhou: o pedido
+   mostra "Entrega falhou" com o motivo e o painel tenta de novo só nesse servidor.
+5. Reiniciar o servidor não perde nada: Pix abertos e o QR do mapa continuam valendo, a fila fica na Rivoo
+   e os resultados ainda sem ack ficam em `plugins/Rivoo/acks.json` (um comando não roda duas vezes).
+6. Chave revogada ou servidor reconectado no painel: o plugin mostra um código de pareamento novo sozinho.
 
 ### Opções do comando (painel)
 
 - **Esperar o jogador online**: o comando fica na fila até o jogador entrar.
 - **Espaços livres no inventário**: o comando espera o jogador ter N espaços livres no inventário
   principal e avisa no chat ("Libere N espaços…", no máximo a cada 5 minutos).
+- **Ícone** do produto: um item do Minecraft (ex.: `diamond_sword`) vira o ícone no menu do `/comprar`;
+  sem um item válido, papel.
 - **Atraso** e **Repetir**: a Rivoo só põe o comando na fila quando ele vence e agenda a próxima repetição
   depois que o plugin confirma a anterior; nada muda no plugin.
 
