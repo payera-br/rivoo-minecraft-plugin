@@ -26,4 +26,13 @@ public interface Players {
 
     /** Mensagem no chat do jogador online; nada se offline. */
     default void message(UUID player, String text) {}
+
+    /**
+     * Thread do jogo. Retira exatamente {@code quantity} de {@code material} (id com namespace) do inventário
+     * principal e da mão secundária do jogador online, ou nada se ele tem menos. Só itens comuns contam (sem
+     * nome, encantamento ou outros dados): esses não são a mercadoria.
+     */
+    default TakeResult takeExact(String player, String material, int quantity) {
+        return new TakeResult(false, 0);
+    }
 }
