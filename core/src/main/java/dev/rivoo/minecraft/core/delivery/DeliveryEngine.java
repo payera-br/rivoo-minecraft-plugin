@@ -12,6 +12,7 @@ import dev.rivoo.minecraft.core.catalog.Product;
 import dev.rivoo.minecraft.core.platform.CommandRunner;
 import dev.rivoo.minecraft.core.platform.Players;
 import dev.rivoo.minecraft.core.platform.PurchaseView;
+import dev.rivoo.minecraft.core.platform.TakeResult;
 import dev.rivoo.minecraft.core.platform.Scheduler;
 import dev.rivoo.minecraft.core.purchase.Purchase;
 import dev.rivoo.minecraft.core.purchase.PurchaseStore;
@@ -236,6 +237,7 @@ public final class DeliveryEngine {
                     continue; // sem ack: volta na próxima consulta
                 }
             }
+            if (TakeCommand.matches(run.command()) && !takeTargetOnline(run.command())) continue; // espera, como requireOnline
             AckResult result = execute(run);
             acks.put(result);
             ackable.add(result);
@@ -248,6 +250,7 @@ public final class DeliveryEngine {
      * falhou" e o painel tenta de novo) e a fila segue.
      */
     private AckResult execute(CommandRun run) {
+        if (TakeCommand.matches(run.command())) return take(run);
         try {
             if (commands.runAsConsole(run.command())) {
                 log.info("Comando executado: " + run.id() + " " + run.command());
@@ -257,6 +260,33 @@ public final class DeliveryEngine {
             return AckResult.failed(run.id(), "O servidor não reconheceu o comando: " + run.command());
         } catch (RuntimeException e) {
             log.warning("Comando falhou (" + run.id() + ", " + run.command() + "): " + e);
+            return AckResult.failed(run.id(), e.getClass().getSimpleName() + ": " + e.getMessage());
+        }
+    }
+
+    /** Malformado conta como "online": não espera para sempre, falha no execute. */
+    private boolean takeTargetOnline(String command) {
+        return TakeCommand.parse(command).map(t -> players.onlineByName(t.player()).isPresent()).orElse(true);
+    }
+
+    /** Retirada exata: tudo ou nada, nunca passa pelo console. */
+    private AckResult take(CommandRun run) {
+        Optional<TakeCommand> parsed = TakeCommand.parse(run.command());
+        if (parsed.isEmpty()) {
+            log.warning("Comando de retirada malformado (" + run.id() + "): " + run.command());
+            return AckResult.failed(run.id(), "Comando de retirada inválido: " + run.command());
+        }
+        TakeCommand t = parsed.get();
+        try {
+            TakeResult result = players.takeExact(t.player(), t.material(), t.quantity());
+            if (result.ok()) {
+                log.info("Retirada executada: " + run.id() + " " + run.command());
+                return AckResult.ok(run.id());
+            }
+            log.warning("Retirada recusada (" + run.id() + "): " + t.player() + " tem só " + result.have());
+            return AckResult.failed(run.id(), t.player() + " tem só " + result.have());
+        } catch (RuntimeException e) {
+            log.warning("Retirada falhou (" + run.id() + ", " + run.command() + "): " + e);
             return AckResult.failed(run.id(), e.getClass().getSimpleName() + ": " + e.getMessage());
         }
     }
