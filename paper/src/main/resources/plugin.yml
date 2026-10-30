@@ -6,7 +6,7 @@ description: Venda de itens via Pix com a Rivoo
 commands:
   comprar:
     description: Compra um produto via Pix
-    usage: /comprar <sku>
+    usage: /comprar <sku> | /comprar presentear <nick> [sku]
   rivoo:
     description: Comandos de administração da Rivoo
     usage: /rivoo <status|secret <chave>|connect>
