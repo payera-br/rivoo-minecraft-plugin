@@ -125,7 +125,7 @@ public final class RivooPlugin extends JavaPlugin {
     }
 
     private String apiUrl() {
-        return getConfig().getString("rivoo.api-url", "https://api.rivoopay.com");
+        return getConfig().getString("rivoo.api-url", "https://api.rivoo.gg");
     }
 
     private RivooApi clientFor(String key) {

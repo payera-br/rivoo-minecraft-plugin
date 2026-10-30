@@ -1,6 +1,6 @@
 # Rivoo para Minecraft
 
-Plugin para servidores **Paper 1.21** que vende VIP, ranks e kits por **Pix** com a [Rivoo](https://rivoopay.com).
+Plugin para servidores **Paper 1.21** que vende VIP, ranks e kits por **Pix** com a [Rivoo](https://rivoo.gg).
 O jogador digita `/comprar`, recebe o QR do Pix num mapa na mão e, assim que paga, o plugin entrega executando
 os comandos que você cadastrou no painel. Sem loja externa.
 
