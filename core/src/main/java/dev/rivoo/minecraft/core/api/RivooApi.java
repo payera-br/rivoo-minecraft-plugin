@@ -23,9 +23,10 @@ public interface RivooApi {
 
     /**
      * {@code POST /v1/agent/orders}: pedido de 1 unidade do sku para o jogador, pago por Pix. O plugin
-     * não manda valor: a Rivoo aplica preço, regras e descontos e devolve o total.
+     * não manda valor: a Rivoo aplica preço, regras e descontos e devolve o total. {@code giftTo}: nick de
+     * outro jogador que recebe o pacote (null = o próprio comprador).
      */
-    AgentOrder createOrder(String sku, UUID playerId, String playerName, String idempotencyKey)
+    AgentOrder createOrder(String sku, UUID playerId, String playerName, String giftTo, String idempotencyKey)
             throws IOException, InterruptedException;
 
     /** {@code GET /v1/agent/orders/:id}: OPEN, PAID, PARTIALLY_REFUNDED, REFUNDED, EXPIRED ou CANCELED. */

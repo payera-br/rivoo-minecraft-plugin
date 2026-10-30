@@ -32,9 +32,10 @@ public final class ShopMenu implements Listener {
     static final int MAX = 54;
     static final Material DEFAULT_ICON = Material.PAPER;
 
-    /** Dono do inventário: marca o menu e guarda o sku de cada posição. */
+    /** Dono do inventário: marca o menu, guarda o sku de cada posição e o presenteado (null = para si). */
     static final class Holder implements InventoryHolder {
         final Map<Integer, String> skus = new HashMap<>();
+        String giftTo;
         private Inventory inventory;
 
         @Override public @NotNull Inventory getInventory() {
@@ -42,30 +43,31 @@ public final class ShopMenu implements Listener {
         }
     }
 
-    /** false quando não há produto para mostrar. */
-    public boolean open(Player player, Catalog catalog) {
-        List<Product> products = catalog.all().stream().limit(MAX).toList();
+    /** false quando não há produto para mostrar. {@code giftTo}: menu de presente (só pacotes presenteáveis). */
+    public boolean open(Player player, Catalog catalog, String giftTo) {
+        List<Product> products = catalog.all().stream().filter(p -> giftTo == null || p.giftable()).limit(MAX).toList();
         if (products.isEmpty()) return false;
         Holder holder = new Holder();
+        holder.giftTo = giftTo;
         int size = Math.min(MAX, ((products.size() + 8) / 9) * 9);
-        Inventory inv = Bukkit.createInventory(holder, size, Component.text("Loja"));
+        Inventory inv = Bukkit.createInventory(holder, size, Component.text(giftTo == null ? "Loja" : "Presente para " + giftTo));
         holder.inventory = inv;
         for (int slot = 0; slot < products.size(); slot++) {
             Product p = products.get(slot);
-            inv.setItem(slot, item(p));
+            inv.setItem(slot, item(p, giftTo != null));
             holder.skus.put(slot, p.sku());
         }
         player.openInventory(inv);
         return true;
     }
 
-    static ItemStack item(Product p) {
+    static ItemStack item(Product p, boolean gift) {
         ItemStack stack = new ItemStack(material(p.icon()));
         stack.editMeta(meta -> {
             meta.displayName(Component.text(p.name(), NamedTextColor.GOLD).decoration(TextDecoration.ITALIC, false));
             meta.lore(List.of(
                     Component.text(Money.format(p.price()), NamedTextColor.GREEN).decoration(TextDecoration.ITALIC, false),
-                    Component.text("Clique para comprar com Pix", NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false)));
+                    Component.text(gift ? "Clique para presentear com Pix" : "Clique para comprar com Pix", NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false)));
         });
         return stack;
     }
@@ -86,7 +88,7 @@ public final class ShopMenu implements Listener {
         String sku = holder.skus.get(event.getSlot());
         if (sku == null) return;
         player.closeInventory();
-        player.performCommand("comprar " + sku);
+        player.performCommand(holder.giftTo == null ? "comprar " + sku : "comprar presentear " + holder.giftTo + " " + sku);
     }
 
     @EventHandler
