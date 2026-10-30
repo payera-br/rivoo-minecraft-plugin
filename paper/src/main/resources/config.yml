@@ -5,7 +5,7 @@
 
 rivoo:
   # Não mexa, exceto em desenvolvimento local (ex.: http://localhost:4100).
-  api-url: "https://api.rivoopay.com"
+  api-url: "https://api.rivoo.gg"
 
 # Opcional. Fila de comandos: a Rivoo segura cada consulta até wait-seconds (0 a 30) esperando comando
 # novo; interval-seconds é o intervalo mínimo entre consultas.
