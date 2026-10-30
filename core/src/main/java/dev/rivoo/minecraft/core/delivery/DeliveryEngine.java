@@ -38,6 +38,7 @@ import java.util.logging.Logger;
  */
 public final class DeliveryEngine {
     static final String STARTING = "A loja está iniciando. Tente em alguns segundos.";
+    static final String NOT_GIFTABLE = "Este pacote não pode ser presenteado.";
     static final String IN_FLIGHT = "Já estamos gerando seu Pix.";
     static final String CREATE_FAILED = "Não foi possível gerar o Pix. Tente novamente.";
 
@@ -309,9 +310,17 @@ public final class DeliveryEngine {
 
     /** Thread do jogo. O futuro completa na thread do jogo. */
     public CompletableFuture<BuyResult> buy(UUID playerId, String playerName, String sku) {
+        return buy(playerId, playerName, sku, null);
+    }
+
+    /** {@code giftTo}: nick de outro jogador que recebe o pacote (null = o próprio comprador). */
+    public CompletableFuture<BuyResult> buy(UUID playerId, String playerName, String sku, String giftTo) {
         if (!catalogLoaded) return CompletableFuture.completedFuture(new BuyResult.Failed(STARTING));
         Optional<Product> product = catalog.find(sku);
         if (product.isEmpty()) return CompletableFuture.completedFuture(new BuyResult.UnknownProduct(sku));
+        if (giftTo != null && !product.get().giftable()) {
+            return CompletableFuture.completedFuture(new BuyResult.Failed(NOT_GIFTABLE));
+        }
         Optional<Purchase> open = store.latestPendingOf(playerId);
         if (open.isPresent()) {
             return CompletableFuture.completedFuture(new BuyResult.AlreadyPending(open.get(), productFor(open.get())));
@@ -326,8 +335,8 @@ public final class DeliveryEngine {
             BuyResult outcome;
             try {
                 // A Rivoo cobra o preço do produto (com regras e descontos); o plugin usa o total que voltou.
-                AgentOrder order = api.createOrder(sku, playerId, playerName, idempotencyKey);
-                Product sold = new Product(p.sku(), p.name(), order.amount(), p.commands(), p.icon());
+                AgentOrder order = api.createOrder(sku, playerId, playerName, giftTo, idempotencyKey);
+                Product sold = new Product(p.sku(), p.name(), order.amount(), p.commands(), p.icon(), p.giftable());
                 if (!order.payable()) {
                     if ("PAID".equals(order.status())) {
                         log.info("Pedido gratuito: " + order.id() + " (" + playerName + ", " + sku + ")");

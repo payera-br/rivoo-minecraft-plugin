@@ -115,7 +115,11 @@ public final class RivooClient implements RivooApi, PairingApi {
 
     @Override
     public List<Product> catalog() throws IOException, InterruptedException {
-        JsonObject data = send(authed("/v1/agent/catalog").GET().build());
+        return products(send(authed("/v1/agent/catalog").GET().build()));
+    }
+
+    /** Produtos da resposta do catálogo, na ordem das categorias. */
+    static List<Product> products(JsonObject data) {
         List<Product> products = new ArrayList<>();
         if (!data.has("categories")) return products;
         for (JsonElement c : data.getAsJsonArray("categories")) {
@@ -126,30 +130,17 @@ public final class RivooClient implements RivooApi, PairingApi {
                 String sku = str(o, "sku");
                 if (sku == null) continue;
                 String name = str(o, "name");
-                products.add(new Product(sku, name == null ? sku : name, cents(obj(o, "price")), List.of(), str(o, "icon")));
+                boolean giftable = o.has("giftable") && !o.get("giftable").isJsonNull() && o.get("giftable").getAsBoolean();
+                products.add(new Product(sku, name == null ? sku : name, cents(obj(o, "price")), List.of(), str(o, "icon"), giftable));
             }
         }
         return products;
     }
 
     @Override
-    public AgentOrder createOrder(String sku, UUID playerId, String playerName, String idempotencyKey)
+    public AgentOrder createOrder(String sku, UUID playerId, String playerName, String giftTo, String idempotencyKey)
             throws IOException, InterruptedException {
-        JsonObject item = new JsonObject();
-        item.addProperty("sku", sku);
-        item.addProperty("quantity", 1);
-        JsonArray items = new JsonArray();
-        items.add(item);
-        // Com o UUID a Rivoo não consulta a Mojang: vale também em servidor offline-mode.
-        JsonObject recipient = new JsonObject();
-        recipient.addProperty("name", cut(playerName, 32));
-        recipient.addProperty("uuid", playerId.toString());
-        JsonObject body = new JsonObject();
-        body.add("items", items);
-        body.add("recipient", recipient);
-        body.addProperty("method", "PIX");
-
-        JsonObject data = send(post("/v1/agent/orders", body)
+        JsonObject data = send(post("/v1/agent/orders", orderBody(sku, playerId, playerName, giftTo))
                 .header("Authorization", "Bearer " + apiKey)
                 .header("Idempotency-Key", idempotencyKey)
                 .build());
@@ -265,6 +256,25 @@ public final class RivooClient implements RivooApi, PairingApi {
         } catch (RuntimeException e) {
             throw new IOException("Resposta inválida da API (HTTP " + res.statusCode() + ")", e);
         }
+    }
+
+    /** Corpo do pedido: 1 unidade do sku, Pix; {@code giftTo} vai no item (o pacote é de outro jogador). */
+    static JsonObject orderBody(String sku, UUID playerId, String playerName, String giftTo) {
+        JsonObject item = new JsonObject();
+        item.addProperty("sku", sku);
+        item.addProperty("quantity", 1);
+        if (giftTo != null) item.addProperty("giftTo", cut(giftTo, 32));
+        JsonArray items = new JsonArray();
+        items.add(item);
+        // Com o UUID a Rivoo não consulta a Mojang: vale também em servidor offline-mode.
+        JsonObject recipient = new JsonObject();
+        recipient.addProperty("name", cut(playerName, 32));
+        recipient.addProperty("uuid", playerId.toString());
+        JsonObject body = new JsonObject();
+        body.add("items", items);
+        body.add("recipient", recipient);
+        body.addProperty("method", "PIX");
+        return body;
     }
 
     private static JsonObject obj(JsonObject o, String key) {
