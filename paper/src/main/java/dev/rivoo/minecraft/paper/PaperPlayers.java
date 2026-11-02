@@ -2,6 +2,7 @@ package dev.rivoo.minecraft.paper;
 
 import dev.rivoo.minecraft.core.api.OnlinePlayer;
 import dev.rivoo.minecraft.core.platform.Players;
+import dev.rivoo.minecraft.core.platform.TakeResult;
 import org.bukkit.Server;
 
 import java.util.ArrayList;
@@ -36,6 +37,11 @@ public final class PaperPlayers implements Players {
             if (item == null || item.getType().isAir()) free++;
         }
         return free;
+    }
+
+    @Override public TakeResult takeExact(String player, String material, int quantity) {
+        var online = server.getPlayerExact(player);
+        return online == null ? new TakeResult(false, 0) : PaperTake.takeExact(online, material, quantity);
     }
 
     @Override public List<OnlinePlayer> online() {
