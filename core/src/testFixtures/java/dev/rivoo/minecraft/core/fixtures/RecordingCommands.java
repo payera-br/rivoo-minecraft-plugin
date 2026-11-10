@@ -7,6 +7,8 @@ import java.util.List;
 
 public final class RecordingCommands implements CommandRunner {
     public final List<String> ran = new ArrayList<>();
+    /** When true the server "does not recognize" the command (runAsConsole returns false). */
+    public boolean fail;
 
-    @Override public boolean runAsConsole(String command) { ran.add(command); return true; }
+    @Override public boolean runAsConsole(String command) { ran.add(command); return !fail; }
 }

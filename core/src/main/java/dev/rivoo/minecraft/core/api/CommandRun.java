@@ -8,9 +8,15 @@ import java.util.UUID;
  * @param recipientUuid UUID do jogador; null quando o pedido só tem o nick (loja web) ou não tem jogador.
  * @param recipientName nick do jogador; null quando o comando não é de ninguém (ex.: enviado pelo painel).
  * @param requiredSlots espaços livres no inventário antes de executar (0 = não exige).
+ * @param product nome do item da compra/renovação; null em remoções, comandos do painel e APIs antigas.
  */
 public record CommandRun(String id, String command, UUID recipientUuid, String recipientName,
-                         boolean requireOnline, int requiredSlots) {
+                         boolean requireOnline, int requiredSlots, String product) {
+    public CommandRun(String id, String command, UUID recipientUuid, String recipientName,
+                      boolean requireOnline, int requiredSlots) {
+        this(id, command, recipientUuid, recipientName, requireOnline, requiredSlots, null);
+    }
+
     public boolean hasRecipient() {
         return recipientUuid != null || recipientName != null;
     }

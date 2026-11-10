@@ -6,6 +6,7 @@ import dev.rivoo.minecraft.core.api.ApiException;
 import dev.rivoo.minecraft.core.api.CommandPage;
 import dev.rivoo.minecraft.core.api.CommandRun;
 import dev.rivoo.minecraft.core.api.OnlinePlayer;
+import dev.rivoo.minecraft.core.api.Pending;
 import dev.rivoo.minecraft.core.api.RivooApi;
 import dev.rivoo.minecraft.core.catalog.Catalog;
 import dev.rivoo.minecraft.core.catalog.Product;
@@ -191,6 +192,34 @@ public final class DeliveryEngine {
         players.message(player, "§eLibere " + slots + " espaços no inventário para receber sua compra.");
     }
 
+    /**
+     * Thread do jogo, quando o jogador entra: busca o que está esperando por ele (fora da thread do
+     * jogo) e avisa no chat. Falha só vai para o log. Se o aviso já pediu espaço, o aviso periódico
+     * de espaço espera os 5 minutos de sempre.
+     */
+    public void announcePending(UUID player, String name) {
+        scheduler.async(() -> {
+            List<Pending> pending;
+            try {
+                pending = api.pending(player, name);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            } catch (Exception e) {
+                log.fine("Não foi possível buscar as compras esperando: " + e.getMessage());
+                return;
+            }
+            if (pending.isEmpty()) return;
+            scheduler.sync(() -> {
+                if (!players.isOnline(player)) return;
+                List<String> lines = PendingNotice.lines(pending, players.freeSlots(player));
+                if (lines.isEmpty()) return;
+                lines.forEach(line -> players.message(player, line));
+                if (lines.stream().anyMatch(l -> l.contains("Libere"))) slotsWarned.put(player, clock.instant());
+            });
+        });
+    }
+
     /** Thread do jogo. */
     void refreshOnline() {
         try {
@@ -266,6 +295,9 @@ public final class DeliveryEngine {
                 }
             }
             AckResult result = execute(run);
+            if (result.ok() && run.product() != null && player != null) {
+                players.message(player, "§aSeu " + run.product() + " chegou!");
+            }
             ackable.add(result); // it ran, so it is acked even if it could not be stored
             if (!acks.put(result)) canExecute = false; // the rest of the batch stays queued
         }
