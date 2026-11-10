@@ -90,9 +90,29 @@ class DeliveryAcksTest {
         // the first one already ran (and is acked from memory); the rest stay in the queue
         assertThat(f.commands().ran).containsExactly("give a");
         assertThat(ackable).extracting(AckResult::id).containsExactly("r1");
-        assertThat(f.log().warnings).hasSize(2); // one from the store, one "batch stopped" line
-        long severe = f.log().messages.stream().filter(m -> m.contains("interrompida")).count();
-        assertThat(severe).isEqualTo(1);
+        assertThat(f.log().severe).hasSize(1); // exactly one severe for the batch
+    }
+
+    @Test
+    void aBrokenDiskKeepsLaterBatchesFromExecutingAnything() {
+        boolean[] fail = {true};
+        Fixture f = fixture((file, data) -> { if (fail[0]) throw new IOException("read-only file system"); });
+
+        f.engine().runCommands(List.of(run("r1", "give a"), run("r2", "give b")));
+        assertThat(f.commands().ran).containsExactly("give a");
+
+        List<AckResult> second = f.engine().runCommands(List.of(run("r2", "give b"), run("r3", "give c")));
+        assertThat(f.commands().ran).containsExactly("give a"); // nothing new ran
+        assertThat(second).isEmpty();
+        assertThat(f.log().severe).hasSize(2); // one per batch
+
+        // an already-stored result still goes out for ack
+        List<AckResult> third = f.engine().runCommands(List.of(run("r1", "give a")));
+        assertThat(third).extracting(AckResult::id).containsExactly("r1");
+
+        fail[0] = false; // disk is back: the next batch runs
+        f.engine().runCommands(List.of(run("r2", "give b"), run("r3", "give c")));
+        assertThat(f.commands().ran).containsExactly("give a", "give b", "give c");
     }
 
     @Test

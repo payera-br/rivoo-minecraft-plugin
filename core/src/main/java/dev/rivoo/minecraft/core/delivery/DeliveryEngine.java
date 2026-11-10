@@ -221,10 +221,20 @@ public final class DeliveryEngine {
      */
     List<AckResult> runCommands(List<CommandRun> runs) {
         List<AckResult> ackable = new ArrayList<>();
+        // Fail closed: while acks.json cannot be written nothing new runs (a restart would run it again).
+        boolean canExecute = acks.healthy() || acks.retrySave();
+        boolean reported = false;
         for (CommandRun run : runs) {
             Optional<AckResult> done = acks.get(run.id());
             if (done.isPresent()) { // executado antes, mas o ack não chegou
                 ackable.add(done.get());
+                continue;
+            }
+            if (!canExecute) {
+                if (!reported) {
+                    log.severe("Execução de comandos interrompida: não foi possível gravar acks.json. Os comandos ficam na fila até o disco voltar.");
+                    reported = true;
+                }
                 continue;
             }
             UUID player = playerOf(run);
@@ -239,11 +249,7 @@ public final class DeliveryEngine {
             }
             AckResult result = execute(run);
             ackable.add(result); // it ran, so it is acked even if it could not be stored
-            if (!acks.put(result)) {
-                // Fail closed: without acks.json a restart would run the rest again. They stay in the queue.
-                log.warning("Execução do lote interrompida: não foi possível gravar acks.json. Os comandos restantes ficam na fila até o disco voltar.");
-                break;
-            }
+            if (!acks.put(result)) canExecute = false; // the rest of the batch stays queued
         }
         return ackable;
     }

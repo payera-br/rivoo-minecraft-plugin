@@ -12,6 +12,7 @@ import java.util.logging.Logger;
 public final class CapturingLog {
     public final Logger logger = Logger.getLogger("capture-" + UUID.randomUUID());
     public final List<String> warnings = new CopyOnWriteArrayList<>();
+    public final List<String> severe = new CopyOnWriteArrayList<>();
     public final List<String> messages = new CopyOnWriteArrayList<>();
 
     public CapturingLog() {
@@ -19,6 +20,7 @@ public final class CapturingLog {
         logger.addHandler(new Handler() {
             @Override public void publish(LogRecord r) {
                 messages.add(r.getMessage());
+                if (r.getLevel() == Level.SEVERE) severe.add(r.getMessage());
                 if (r.getLevel().intValue() >= Level.WARNING.intValue()) warnings.add(r.getMessage());
             }
             @Override public void flush() { }

@@ -7,10 +7,11 @@ import com.google.gson.JsonParser;
 import dev.rivoo.minecraft.core.api.AckResult;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.channels.FileChannel;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
@@ -30,6 +31,8 @@ public final class AckStore {
     private final Path file;
     private final Logger log;
     private final Saver saver;
+    /** False after a failed save until a later save succeeds. */
+    private boolean healthy = true;
     private final Map<String, AckResult> pending = new LinkedHashMap<>();
 
     /** Writes the whole file durably; swappable so tests can simulate a disk that rejects writes. */
@@ -63,6 +66,16 @@ public final class AckStore {
      */
     public synchronized boolean put(AckResult result) {
         pending.put(result.id(), result);
+        return save();
+    }
+
+    /** False after a failed save, until a later save works: callers must not run commands meanwhile. */
+    public synchronized boolean healthy() {
+        return healthy;
+    }
+
+    /** Retries saving the current state; true (and healthy again) if it worked. */
+    public synchronized boolean retrySave() {
         return save();
     }
 
@@ -100,9 +113,13 @@ public final class AckStore {
         }
         try {
             saver.save(file, list.toString().getBytes(StandardCharsets.UTF_8));
+            if (!healthy) log.info(file.getFileName() + " voltou a ser gravado.");
+            healthy = true;
             return true;
         } catch (IOException | RuntimeException e) {
-            log.severe("Falha ao salvar " + file.getFileName() + ": " + e.getMessage());
+            // Logged once per outage (the engine reports one severe per batch), so acks do not spam the log.
+            if (healthy) log.warning("Falha ao salvar " + file.getFileName() + ": " + e.getMessage());
+            healthy = false;
             return false;
         }
     }
@@ -114,7 +131,8 @@ public final class AckStore {
             Files.createDirectories(file.getParent());
             try (FileChannel ch = FileChannel.open(tmp, StandardOpenOption.CREATE, StandardOpenOption.WRITE,
                     StandardOpenOption.TRUNCATE_EXISTING)) {
-                ch.write(java.nio.ByteBuffer.wrap(data));
+                ByteBuffer buf = ByteBuffer.wrap(data);
+                while (buf.hasRemaining()) ch.write(buf);
                 ch.force(true);
             }
             Files.move(tmp, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);

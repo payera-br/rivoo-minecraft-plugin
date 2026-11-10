@@ -35,6 +35,7 @@ class AckStoreTest {
         assertThat(store.put(AckResult.ok("r1"))).isFalse();
 
         assertThat(log.warnings).hasSize(1);
+        assertThat(store.healthy()).isFalse();
         // the result is still kept in memory so it can be acked
         assertThat(store.get("r1")).isPresent();
     }
@@ -62,5 +63,32 @@ class AckStoreTest {
 
         assertThat(store.put(AckResult.ok("r1"))).isFalse();
         assertThat(store.all()).extracting(AckResult::id).isEqualTo(List.of("r1"));
+    }
+
+    @Test
+    void realSaverFailingInsideTheMoveCleansUpTheTmpFile() throws IOException {
+        // the target is a non-empty directory: the tmp is written, then the move fails
+        Path target = dir.resolve("acks.json");
+        Files.createDirectories(target);
+        Files.writeString(target.resolve("x"), "x");
+        AckStore store = new AckStore(target, new CapturingLog().logger);
+
+        assertThat(store.put(AckResult.ok("r1"))).isFalse();
+
+        assertThat(Files.exists(dir.resolve("acks.json.tmp"))).isFalse();
+    }
+
+    @Test
+    void becomesHealthyAgainWhenASaveWorks() {
+        boolean[] fail = {true};
+        AckStore store = new AckStore(dir.resolve("acks.json"), new CapturingLog().logger,
+                (file, data) -> { if (fail[0]) throw new IOException("disk"); });
+
+        assertThat(store.put(AckResult.ok("r1"))).isFalse();
+        assertThat(store.retrySave()).isFalse();
+        assertThat(store.healthy()).isFalse();
+        fail[0] = false;
+        assertThat(store.retrySave()).isTrue();
+        assertThat(store.healthy()).isTrue();
     }
 }
