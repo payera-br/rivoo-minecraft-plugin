@@ -26,6 +26,7 @@ class BuyerMessagesTest {
     static final class Api implements RivooApi {
         List<Pending> pending = List.of();
         boolean pendingFails;
+        Runnable duringFetch = () -> { };
         @Override public ServerInfo connection() { throw new UnsupportedOperationException(); }
         @Override public void heartbeat(String v, Map<String, Object> d) { }
         @Override public List<Product> catalog() { return List.of(); }
@@ -34,6 +35,7 @@ class BuyerMessagesTest {
         @Override public CommandPage pollCommands(int w, int l, List<OnlinePlayer> o) { return new CommandPage(List.of(), false); }
         @Override public List<String> ackCommands(List<AckResult> r) { return List.of(); }
         @Override public List<Pending> pending(UUID uuid, String name) throws IOException {
+            duringFetch.run();
             if (pendingFails) throw new IOException("down");
             return pending;
         }
@@ -104,6 +106,29 @@ class BuyerMessagesTest {
     void pendingFailureNeverBreaksTheJoin() {
         F f = fixture();
         f.api().pendingFails = true;
+        f.engine().announcePending(ID, "Steve");
+        assertThat(f.players().messages).isEmpty();
+    }
+
+    @Test
+    void oneArrivedMessagePerPlayerAndProductInABatch() {
+        F f = fixture();
+        f.engine().runCommands(List.of(run("r1", "give a", "VIP"), run("r2", "give b", "VIP")));
+        assertThat(f.players().messages).containsExactly("§aSeu VIP chegou!");
+    }
+
+    @Test
+    void differentProductsEachGetTheirMessage() {
+        F f = fixture();
+        f.engine().runCommands(List.of(run("r1", "give a", "VIP"), run("r2", "give b", "Kit")));
+        assertThat(f.players().messages).containsExactly("§aSeu VIP chegou!", "§aSeu Kit chegou!");
+    }
+
+    @Test
+    void playerWhoLeftBeforeTheSendGetsNothing() {
+        F f = fixture();
+        f.api().pending = List.of(new Pending("VIP", 0));
+        f.api().duringFetch = () -> f.players().offline(ID);
         f.engine().announcePending(ID, "Steve");
         assertThat(f.players().messages).isEmpty();
     }

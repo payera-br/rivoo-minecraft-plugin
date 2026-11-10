@@ -212,10 +212,11 @@ public final class DeliveryEngine {
             if (pending.isEmpty()) return;
             scheduler.sync(() -> {
                 if (!players.isOnline(player)) return;
-                List<String> lines = PendingNotice.lines(pending, players.freeSlots(player));
+                int free = players.freeSlots(player);
+                List<String> lines = PendingNotice.lines(pending, free);
                 if (lines.isEmpty()) return;
                 lines.forEach(line -> players.message(player, line));
-                if (lines.stream().anyMatch(l -> l.contains("Libere"))) slotsWarned.put(player, clock.instant());
+                if (pending.stream().anyMatch(p -> p.requiredSlots() > free)) slotsWarned.put(player, clock.instant());
             });
         });
     }
@@ -271,6 +272,8 @@ public final class DeliveryEngine {
         // Fail closed: while acks.json cannot be written nothing new runs (a restart would run it again).
         boolean canExecute = acks.healthy() || acks.retrySave();
         boolean reported = false;
+        // One "arrived" message per (player, product) in a batch, even when the item runs several commands.
+        Set<String> announced = new java.util.HashSet<>();
         for (CommandRun run : runs) {
             Optional<AckResult> done = acks.get(run.id());
             if (done.isPresent()) { // executado antes, mas o ack não chegou
@@ -295,7 +298,8 @@ public final class DeliveryEngine {
                 }
             }
             AckResult result = execute(run);
-            if (result.ok() && run.product() != null && player != null) {
+            if (result.ok() && run.product() != null && player != null
+                    && announced.add(player + "|" + run.product())) {
                 players.message(player, "§aSeu " + run.product() + " chegou!");
             }
             ackable.add(result); // it ran, so it is acked even if it could not be stored
