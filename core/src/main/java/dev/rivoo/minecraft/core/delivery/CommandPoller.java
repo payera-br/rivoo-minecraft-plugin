@@ -36,6 +36,7 @@ public final class CommandPoller implements Runnable {
     private final Logger log;
     private final Clock clock;
     private final Runnable onUnauthorized;
+    private final Runnable flushAcks;
     private volatile boolean stopped;
     private final AtomicBoolean busy = new AtomicBoolean(false);
     private volatile Instant backoffUntil = Instant.EPOCH;
@@ -43,7 +44,8 @@ public final class CommandPoller implements Runnable {
     public CommandPoller(RivooApi api, int waitSeconds, Scheduler scheduler, Supplier<List<OnlinePlayer>> online,
                          Function<List<CommandRun>, List<AckResult>> runSync, Consumer<List<String>> onAcked,
                          Consumer<List<CommandPage.SlotWait>> onNeedSlots, Logger log, Clock clock,
-                         Runnable onUnauthorized) {
+                         Runnable onUnauthorized, Runnable flushAcks) {
+        this.flushAcks = flushAcks;
         this.online = online;
         this.onNeedSlots = onNeedSlots;
         this.onAcked = onAcked;
@@ -71,6 +73,12 @@ public final class CommandPoller implements Runnable {
         if (clock.instant().isBefore(backoffUntil) || !busy.compareAndSet(false, true)) return;
         boolean handedOff = false;
         try {
+            // Stored acks go out every cycle: a run the API expired or canceled never comes back in the queue.
+            try {
+                flushAcks.run();
+            } catch (RuntimeException e) {
+                log.fine("Acks guardados ficam para o próximo ciclo: " + e);
+            }
             CommandPage page = api.pollCommands(waitSeconds, PAGE, online.get());
             backoffSeconds = 5;
             if (!stopped && !page.needSlots().isEmpty()) scheduler.sync(() -> onNeedSlots.accept(page.needSlots()));
@@ -126,7 +134,8 @@ public final class CommandPoller implements Runnable {
         try {
             scheduler.async(() -> {
                 try {
-                    onAcked.accept(api.ackCommands(ackable));
+                    // A page holds at most PAGE (100) runs, the API's ack limit; chunked anyway.
+                    for (List<AckResult> chunk : DeliveryEngine.chunks(ackable)) onAcked.accept(api.ackCommands(chunk));
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 } catch (Exception e) {
