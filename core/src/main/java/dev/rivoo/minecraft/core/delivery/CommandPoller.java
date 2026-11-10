@@ -134,7 +134,8 @@ public final class CommandPoller implements Runnable {
         try {
             scheduler.async(() -> {
                 try {
-                    onAcked.accept(api.ackCommands(ackable));
+                    // A page holds at most PAGE (100) runs, the API's ack limit; chunked anyway.
+                    for (List<AckResult> chunk : DeliveryEngine.chunks(ackable)) onAcked.accept(api.ackCommands(chunk));
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 } catch (Exception e) {

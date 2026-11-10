@@ -39,6 +39,9 @@ class DeliveryAcksTest {
         final List<List<String>> acked = new ArrayList<>();
         final List<String> calls = new ArrayList<>();
         boolean ackFails;
+        /** Fails only the n-th ack call (1-based); 0 = never. */
+        int failCall;
+        int ackCalls;
 
         @Override public ServerInfo connection() { throw new UnsupportedOperationException(); }
         @Override public void heartbeat(String v, Map<String, Object> d) { }
@@ -51,7 +54,10 @@ class DeliveryAcksTest {
         }
         @Override public List<String> ackCommands(List<AckResult> results) throws IOException {
             calls.add("ack");
-            if (ackFails) throw new IOException("network down");
+            ackCalls++;
+            if (ackFails || ackCalls == failCall) throw new IOException("network down");
+            // The API takes at most 100 results per request (400 otherwise).
+            if (results.size() > 100) throw new IOException("400: results must contain no more than 100 elements");
             List<String> ids = results.stream().map(AckResult::id).toList();
             acked.add(ids);
             return ids;
@@ -159,5 +165,30 @@ class DeliveryAcksTest {
 
         assertThat(f.api().calls).contains("poll");
         assertThat(f.engine().acks.get("r1")).isPresent();
+    }
+
+    @Test
+    void moreThanAHundredStoredAcksGoOutInChunksOfAHundred() {
+        Fixture f = fixture(null);
+        for (int i = 0; i < 250; i++) f.engine().acks.put(AckResult.ok("r" + i));
+
+        f.engine().flushStoredAcks();
+
+        assertThat(f.api().acked).extracting(List::size).containsExactly(100, 100, 50);
+        assertThat(f.engine().acks.all()).isEmpty();
+    }
+
+    @Test
+    void aFailedChunkStaysStoredAndTheOthersLand() {
+        Fixture f = fixture(null);
+        for (int i = 0; i < 250; i++) f.engine().acks.put(AckResult.ok("r" + i));
+        f.api().failCall = 2;
+
+        f.engine().flushStoredAcks();
+
+        assertThat(f.api().acked).extracting(List::size).containsExactly(100, 50);
+        assertThat(f.engine().acks.all()).hasSize(100);
+        f.engine().flushStoredAcks(); // the next cycle sends what stayed
+        assertThat(f.engine().acks.all()).isEmpty();
     }
 }

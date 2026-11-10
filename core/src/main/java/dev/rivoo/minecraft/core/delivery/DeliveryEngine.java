@@ -200,17 +200,35 @@ public final class DeliveryEngine {
         }
     }
 
-    /** Thread assíncrona. Acks que ficaram para trás (servidor reiniciou antes de confirmar). */
+    /**
+     * Thread assíncrona. Acks que ficaram para trás (servidor reiniciou antes de confirmar), em lotes de
+     * até {@link #ACK_MAX} (o limite da API por requisição): um lote que falha fica guardado e os outros
+     * seguem.
+     */
     void flushStoredAcks() {
         List<AckResult> stored = acks.all();
         if (stored.isEmpty() || stopped) return;
-        try {
-            forgetAcked(api.ackCommands(stored));
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        } catch (Exception e) {
-            log.fine("Acks guardados ficam para a próxima consulta: " + e.getMessage());
+        for (List<AckResult> chunk : chunks(stored)) {
+            if (stopped) return;
+            try {
+                forgetAcked(api.ackCommands(chunk));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            } catch (Exception e) {
+                log.fine("Acks guardados ficam para a próxima consulta: " + e.getMessage());
+            }
         }
+    }
+
+    /** Resultados por requisição de ack que a API aceita. */
+    static final int ACK_MAX = 100;
+
+    /** A lista em lotes de até {@link #ACK_MAX}, na ordem. */
+    static List<List<AckResult>> chunks(List<AckResult> results) {
+        List<List<AckResult>> out = new ArrayList<>();
+        for (int i = 0; i < results.size(); i += ACK_MAX) out.add(results.subList(i, Math.min(results.size(), i + ACK_MAX)));
+        return out;
     }
 
     /**
