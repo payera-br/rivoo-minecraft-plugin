@@ -10,7 +10,9 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.channels.FileChannel;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -27,11 +29,23 @@ import java.util.logging.Logger;
 public final class AckStore {
     private final Path file;
     private final Logger log;
+    private final Saver saver;
     private final Map<String, AckResult> pending = new LinkedHashMap<>();
 
+    /** Writes the whole file durably; swappable so tests can simulate a disk that rejects writes. */
+    @FunctionalInterface
+    public interface Saver {
+        void save(Path file, byte[] data) throws IOException;
+    }
+
     public AckStore(Path file, Logger log) {
+        this(file, log, AckStore::saveDurably);
+    }
+
+    public AckStore(Path file, Logger log, Saver saver) {
         this.file = file;
         this.log = log;
+        this.saver = saver;
         load();
     }
 
@@ -43,10 +57,13 @@ public final class AckStore {
         return new ArrayList<>(pending.values());
     }
 
-    /** Grava antes do ack: se a gravação falhar, o resultado fica só na memória (avisado no log). */
-    public synchronized void put(AckResult result) {
+    /**
+     * Grava antes do ack. Devolve false se a gravação falhar: o resultado fica só na memória (avisado no
+     * log) e quem chama deve parar de executar comandos, senão um restart os executaria de novo.
+     */
+    public synchronized boolean put(AckResult result) {
         pending.put(result.id(), result);
-        save();
+        return save();
     }
 
     public synchronized void forget(Collection<String> runIds) {
@@ -72,7 +89,7 @@ public final class AckStore {
         }
     }
 
-    private void save() {
+    private boolean save() {
         JsonArray list = new JsonArray();
         for (AckResult r : pending.values()) {
             JsonObject o = new JsonObject();
@@ -81,13 +98,29 @@ public final class AckStore {
             if (r.error() != null) o.addProperty("error", r.error());
             list.add(o);
         }
+        try {
+            saver.save(file, list.toString().getBytes(StandardCharsets.UTF_8));
+            return true;
+        } catch (IOException | RuntimeException e) {
+            log.severe("Falha ao salvar " + file.getFileName() + ": " + e.getMessage());
+            return false;
+        }
+    }
+
+    /** Writes a .tmp, forces it to disk, then moves it over the real file atomically. */
+    private static void saveDurably(Path file, byte[] data) throws IOException {
         Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
         try {
             Files.createDirectories(file.getParent());
-            Files.writeString(tmp, list.toString(), StandardCharsets.UTF_8);
+            try (FileChannel ch = FileChannel.open(tmp, StandardOpenOption.CREATE, StandardOpenOption.WRITE,
+                    StandardOpenOption.TRUNCATE_EXISTING)) {
+                ch.write(java.nio.ByteBuffer.wrap(data));
+                ch.force(true);
+            }
             Files.move(tmp, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-        } catch (IOException e) {
-            log.severe("Falha ao salvar " + file.getFileName() + ": " + e.getMessage());
+        } catch (IOException | RuntimeException e) {
+            try { Files.deleteIfExists(tmp); } catch (IOException ignored) { }
+            throw e;
         }
     }
 }

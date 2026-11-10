@@ -95,7 +95,7 @@ public final class DeliveryEngine {
         track(scheduler.repeatSync(this::refreshOnline, Duration.ofSeconds(1)));
         scheduler.async(this::flushStoredAcks);
         poller = new CommandPoller(api, config.commandWaitSeconds(), scheduler, () -> online, this::runCommands,
-                this::forgetAcked, this::warnSlots, log, clock, this::markRevoked);
+                this::forgetAcked, this::warnSlots, log, clock, this::markRevoked, this::flushStoredAcks);
         track(scheduler.repeatAsync(poller, config.commandInterval()));
         OrderPoller orders = new OrderPoller(api, store,
                 p -> scheduler.sync(() -> confirmPaid(p)),
@@ -238,8 +238,12 @@ public final class DeliveryEngine {
                 }
             }
             AckResult result = execute(run);
-            acks.put(result);
-            ackable.add(result);
+            ackable.add(result); // it ran, so it is acked even if it could not be stored
+            if (!acks.put(result)) {
+                // Fail closed: without acks.json a restart would run the rest again. They stay in the queue.
+                log.warning("Execução do lote interrompida: não foi possível gravar acks.json. Os comandos restantes ficam na fila até o disco voltar.");
+                break;
+            }
         }
         return ackable;
     }
