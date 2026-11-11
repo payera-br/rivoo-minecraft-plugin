@@ -49,6 +49,7 @@ public final class PlayerListener implements Listener {
             if (!joined.isOnline()) return;
             guard.sweep(joined);
             view.showBars(joined);
+            holder.engine().ifPresent(e -> e.announcePending(joined.getUniqueId(), joined.getName()));
         }, 40L);
     }
 

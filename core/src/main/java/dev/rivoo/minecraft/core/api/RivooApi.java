@@ -40,6 +40,14 @@ public interface RivooApi {
      */
     CommandPage pollCommands(int waitSeconds, int limit, List<OnlinePlayer> online) throws IOException, InterruptedException;
 
+    /**
+     * {@code GET /v1/agent/pending}: compras do jogador que ainda esperam entrega neste servidor.
+     * APIs antigas sem a rota: lista vazia.
+     */
+    default List<Pending> pending(UUID uuid, String name) throws IOException, InterruptedException {
+        return List.of();
+    }
+
     /** {@code POST /v1/agent/commands/ack} com o resultado de cada um: devolve os ids que saíram da fila. */
     List<String> ackCommands(List<AckResult> results) throws IOException, InterruptedException;
 }

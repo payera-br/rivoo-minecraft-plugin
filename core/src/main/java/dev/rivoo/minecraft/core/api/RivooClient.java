@@ -188,7 +188,8 @@ public final class RivooClient implements RivooApi, PairingApi {
                     str(recipient, "name"),
                     !o.has("requireOnline") || o.get("requireOnline").getAsBoolean(),
                     o.has("requiredSlots") && !o.get("requiredSlots").isJsonNull()
-                            ? o.get("requiredSlots").getAsInt() : 0));
+                            ? o.get("requiredSlots").getAsInt() : 0,
+                    str(o, "product")));
         }
         List<CommandPage.SlotWait> needSlots = new ArrayList<>();
         if (page.has("needSlots") && page.get("needSlots").isJsonArray()) {
@@ -200,6 +201,29 @@ public final class RivooClient implements RivooApi, PairingApi {
             }
         }
         return new CommandPage(runs, page.has("hasMore") && page.get("hasMore").getAsBoolean(), needSlots);
+    }
+
+    @Override
+    public List<Pending> pending(UUID uuid, String name) throws IOException, InterruptedException {
+        String query = "?uuid=" + URLEncoder.encode(uuid.toString(), StandardCharsets.UTF_8)
+                + "&name=" + URLEncoder.encode(name == null ? "" : name, StandardCharsets.UTF_8);
+        return pendingOf(send(authed("/v1/agent/pending" + query).GET().build()));
+    }
+
+    /** Itens esperando da resposta de {@code agent/pending}; entradas sem nome são ignoradas. */
+    static List<Pending> pendingOf(JsonObject res) {
+        List<Pending> out = new ArrayList<>();
+        if (!res.has("data") || !res.get("data").isJsonArray()) return out;
+        for (JsonElement el : res.getAsJsonArray("data")) {
+            if (!el.isJsonObject()) continue;
+            JsonObject o = el.getAsJsonObject();
+            String product = str(o, "product");
+            if (product == null || product.isBlank()) continue;
+            int slots = o.has("requiredSlots") && !o.get("requiredSlots").isJsonNull()
+                    ? o.get("requiredSlots").getAsInt() : 0;
+            out.add(new Pending(product, slots));
+        }
+        return out;
     }
 
     @Override
