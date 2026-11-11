@@ -7,8 +7,14 @@ import java.util.List;
 
 public final class RecordingCommands implements CommandRunner {
     public final List<String> ran = new ArrayList<>();
-    /** When true the server "does not recognize" the command (runAsConsole returns false). */
+    /** When true the server "does not recognize" the command. */
     public boolean fail;
+    /** When set, the game answers with this error (a vanilla command that failed). */
+    public String gameError;
 
-    @Override public boolean runAsConsole(String command) { ran.add(command); return !fail; }
+    @Override public String run(String command) {
+        ran.add(command);
+        if (fail) return "O servidor não reconheceu o comando: " + command;
+        return gameError;
+    }
 }
