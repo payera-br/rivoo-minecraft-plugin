@@ -85,6 +85,16 @@ class BuyerMessagesTest {
     }
 
     @Test
+    void anErrorFromTheGameIsAFailedDeliveryNotADeliveredOne() {
+        F f = fixture();
+        f.commands().gameError = "O jogo respondeu: No player was found";
+        List<AckResult> acks = f.engine().runCommands(List.of(run("r1", "give", "VIP")));
+        assertThat(f.players().messages).isEmpty();
+        assertThat(acks).extracting(AckResult::ok, AckResult::error)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple(false, "O jogo respondeu: No player was found"));
+    }
+
+    @Test
     void joinNoticeListsPendingItems() {
         F f = fixture();
         f.api().pending = List.of(new Pending("VIP", 0));

@@ -314,12 +314,13 @@ public final class DeliveryEngine {
      */
     private AckResult execute(CommandRun run) {
         try {
-            if (commands.runAsConsole(run.command())) {
+            String error = commands.run(run.command());
+            if (error == null) {
                 log.info("Comando executado: " + run.id() + " " + run.command());
                 return AckResult.ok(run.id());
             }
-            log.warning("Comando recusado pelo servidor (" + run.id() + "): " + run.command());
-            return AckResult.failed(run.id(), "O servidor não reconheceu o comando: " + run.command());
+            log.warning("Comando falhou (" + run.id() + ", " + run.command() + "): " + error);
+            return AckResult.failed(run.id(), error);
         } catch (RuntimeException e) {
             log.warning("Comando falhou (" + run.id() + ", " + run.command() + "): " + e);
             return AckResult.failed(run.id(), e.getClass().getSimpleName() + ": " + e.getMessage());

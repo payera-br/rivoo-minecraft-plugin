@@ -148,7 +148,7 @@ public final class RivooPlugin extends JavaPlugin {
         if (facts.port() > 0) details.put("port", facts.port());
         DeliveryConfig config = PaperConfig.delivery(getConfig(), facts.pluginVersion(), details);
         DeliveryEngine engine = new DeliveryEngine(api, store, catalog, new PaperScheduler(this),
-                new PaperPlayers(getServer()), cmd -> Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd), view,
+                new PaperPlayers(getServer()), new PaperCommands(getServer()), view,
                 config, new AckStore(getDataFolder().toPath().resolve("acks.json"), getLogger()), getLogger(),
                 Clock.systemUTC());
         // Chave revogada (no polling ou na checagem de subida): o pareamento recomeça sozinho.
